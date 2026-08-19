@@ -8,6 +8,14 @@ const STATIC_BASE_NAME_PATTERN = /^static_base(?:_\d+)?$/;
 const MIN_POINTER_DELTA_TIME = 1 / 240;
 const MAX_POINTER_DELTA_TIME = 0.12;
 
+const SHAKE_THRESHOLD = 0.8;
+const SHAKE_RELEASE_THRESHOLD = 0.25;
+const MAX_SHAKE_VELOCITY = 5;
+const MIN_SHAKE_IMPULSE = 0.18;
+const MAX_SHAKE_IMPULSE = 0.65;
+const SHAKE_SPREAD = 0.12;
+const ACTIVE_GRAVITY = { x: 0, y: -0.4, z: 0 };
+
 let rapierInitialization = null;
 
 function initializeRapier() {
@@ -174,13 +182,14 @@ class ModelPhysics {
     this.camera = camera;
     this.canvas = canvas;
     this.config = config;
-    this.world = new RAPIER.World(config.gravity);
+    this.world = new RAPIER.World(ACTIVE_GRAVITY);
     this.world.timestep = config.fixedTimeStep;
     this.world.maxCcdSubsteps = config.ccdSubsteps;
     this.boundary = createBoundary(sphereNode);
     this.bodies = [];
     this.accumulator = 0;
-    this.elapsedTime = 0;
+    this.isActivated = false;
+    this.shakeArmed = true;
     this.activeTouchPointerId = null;
     this.lastPointer = null;
     this.rawPointerVelocity = new THREE.Vector2();
@@ -192,12 +201,8 @@ class ModelPhysics {
     this.cameraForward = new THREE.Vector3();
     this.localCameraRight = new THREE.Vector3();
     this.localCameraUp = new THREE.Vector3();
-    this.localPointerVelocity = new THREE.Vector3();
     this.localCameraForward = new THREE.Vector3();
-    this.bodyPointerVelocity = new THREE.Vector3();
     this.rootWorldQuaternion = new THREE.Quaternion();
-    this.force = new THREE.Vector3();
-    this.torque = new THREE.Vector3();
     this.impulse = new THREE.Vector3();
     this.torqueImpulse = new THREE.Vector3();
     this.boundaryPosition = new THREE.Vector3();
@@ -230,7 +235,7 @@ class ModelPhysics {
     const colliderData = isBall
       ? createBallCollider(node, this.config)
       : createClipCollider(node, this.config);
-    const bodyDescriptor = RAPIER.RigidBodyDesc.dynamic()
+    const bodyDescriptor = RAPIER.RigidBodyDesc.fixed()
       .setTranslation(node.position.x, node.position.y, node.position.z)
       .setRotation({
         x: node.quaternion.x,
@@ -257,19 +262,11 @@ class ModelPhysics {
     this.world.createCollider(colliderData.descriptor, body);
 
     const seed = hashName(node.name);
-    const rawDepthResponse = hashName(`${node.name}:depth`) * 2 - 1;
-    const depthResponse =
-      Math.sign(rawDepthResponse || 1) *
-      (0.35 + Math.abs(rawDepthResponse) * 0.65);
 
     this.bodies.push({
       node,
       body,
       boundaryRadius: colliderData.boundaryRadius,
-      phase: seed * Math.PI * 2,
-      frequency: this.config.idleFrequency * (0.8 + seed * 0.4),
-      responsiveness: 0.2 + seed * 1.3,
-      depthResponse,
       torqueLever: createDeterministicVector(seed, 0.37).multiplyScalar(
         colliderData.boundaryRadius,
       ),
@@ -281,6 +278,7 @@ class ModelPhysics {
 
     this.canvas.addEventListener("pointerenter", (event) => {
       if (event.pointerType === "mouse") {
+        this.shakeArmed = true;
         this.resetPointerSmoothing();
         this.rememberPointer(event);
       }
@@ -293,6 +291,7 @@ class ModelPhysics {
 
       this.activeTouchPointerId = event.pointerId;
       this.canvas.setPointerCapture(event.pointerId);
+      this.shakeArmed = true;
       this.resetPointerSmoothing();
       this.rememberPointer(event);
     }, options);
@@ -315,6 +314,7 @@ class ModelPhysics {
     this.canvas.addEventListener("pointerleave", (event) => {
       if (event.pointerType === "mouse") {
         this.lastPointer = null;
+        this.shakeArmed = true;
         this.resetPointerSmoothing();
       }
     }, options);
@@ -330,6 +330,7 @@ class ModelPhysics {
 
       this.activeTouchPointerId = null;
       this.lastPointer = null;
+      this.shakeArmed = true;
       this.resetPointerSmoothing();
     };
 
@@ -421,34 +422,69 @@ class ModelPhysics {
       .normalize();
   }
 
-  applyPointerVelocity(velocityX, velocityY) {
-    this.updateCameraAxes();
-
-    let pointerSpeed = Math.hypot(velocityX, velocityY);
-    let pointerScale = 1;
-    if (pointerSpeed > this.config.maxPointerVelocity) {
-      pointerScale = this.config.maxPointerVelocity / pointerSpeed;
-      pointerSpeed = this.config.maxPointerVelocity;
+  activatePhysics() {
+    if (this.isActivated) {
+      return;
     }
 
-    this.localPointerVelocity
-      .copy(this.localCameraRight)
-      .multiplyScalar(velocityX * pointerScale)
-      .addScaledVector(this.localCameraUp, velocityY * pointerScale);
+    this.isActivated = true;
+    this.accumulator = 0;
+
+    for (const { body } of this.bodies) {
+      body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+      body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      body.resetForces(false);
+      body.resetTorques(false);
+    }
+  }
+
+  applyPointerVelocity(_velocityX, velocityY) {
+    const upwardSpeed = Math.max(velocityY, 0);
+
+    if (upwardSpeed <= SHAKE_RELEASE_THRESHOLD) {
+      this.shakeArmed = true;
+      return;
+    }
+
+    if (!this.shakeArmed || upwardSpeed < SHAKE_THRESHOLD) {
+      return;
+    }
+
+    this.shakeArmed = false;
+    this.activatePhysics();
+    this.updateCameraAxes();
+
+    const maximumVelocity = Math.min(
+      MAX_SHAKE_VELOCITY,
+      this.config.maxPointerVelocity,
+    );
+    const cappedVelocity = Math.min(upwardSpeed, maximumVelocity);
+    const normalizedStrength = THREE.MathUtils.clamp(
+      (cappedVelocity - SHAKE_THRESHOLD) /
+        Math.max(maximumVelocity - SHAKE_THRESHOLD, Number.EPSILON),
+      0,
+      1,
+    );
+    const impulseStrength = THREE.MathUtils.lerp(
+      MIN_SHAKE_IMPULSE,
+      MAX_SHAKE_IMPULSE,
+      normalizedStrength,
+    );
 
     for (const item of this.bodies) {
-      this.bodyPointerVelocity
-        .copy(this.localPointerVelocity)
-        .multiplyScalar(
-          this.config.pointerVelocityGain * item.responsiveness,
-        )
-        .addScaledVector(
-          this.localCameraForward,
-          pointerSpeed * this.config.pointerDepthGain * item.depthResponse,
-        );
+      const mass = item.body.mass();
+      const horizontalSpread =
+        (Math.random() * 2 - 1) * SHAKE_SPREAD * impulseStrength * mass;
+      const depthSpread =
+        (Math.random() * 2 - 1) * SHAKE_SPREAD * impulseStrength * mass;
+
       this.impulse
-        .copy(this.bodyPointerVelocity)
-        .multiplyScalar(item.body.mass());
+        .copy(this.localCameraUp)
+        .multiplyScalar(impulseStrength * mass)
+        .addScaledVector(this.localCameraRight, horizontalSpread)
+        .addScaledVector(this.localCameraForward, depthSpread);
+
       item.body.applyImpulse(this.impulse, true);
 
       this.torqueImpulse
@@ -459,42 +495,15 @@ class ModelPhysics {
     }
   }
 
-  applyIdleMotion() {
-    for (const item of this.bodies) {
-      const time = this.elapsedTime * item.frequency + item.phase;
-      const mass = item.body.mass();
-
-      this.force.set(
-        Math.sin(time * 0.91),
-        Math.sin(time * 1.17 + 2.1),
-        Math.sin(time * 0.73 + 4.2) * this.config.idleDepthMultiplier,
-      );
-      this.force.setLength(this.config.idleAcceleration * mass);
-
-      this.torque.set(
-        Math.sin(time * 0.67 + 1.3),
-        Math.sin(time * 0.83 + 3.7),
-        Math.sin(time * 1.09 + 5.1),
-      );
-      this.torque.setLength(this.config.idleTorque);
-
-      item.body.resetForces(false);
-      item.body.resetTorques(false);
-      item.body.addForce(this.force, false);
-      item.body.addTorque(this.torque, false);
-    }
-  }
-
   clampBodySpeeds() {
-    for (const { body, responsiveness } of this.bodies) {
+    for (const { body } of this.bodies) {
       const linearVelocity = body.linvel();
       const linearSpeed = Math.hypot(
         linearVelocity.x,
         linearVelocity.y,
         linearVelocity.z,
       );
-      const maxLinearSpeed =
-        this.config.maxLinearSpeed * responsiveness;
+      const maxLinearSpeed = this.config.maxLinearSpeed;
 
       if (linearSpeed > maxLinearSpeed) {
         const scale = maxLinearSpeed / linearSpeed;
@@ -600,6 +609,10 @@ class ModelPhysics {
   }
 
   update(deltaTime) {
+    if (!this.isActivated) {
+      return;
+    }
+
     const maximumAccumulatedTime =
       this.config.fixedTimeStep * this.config.maxSubSteps;
     this.accumulator = Math.min(
@@ -612,8 +625,6 @@ class ModelPhysics {
       this.accumulator >= this.config.fixedTimeStep &&
       substeps < this.config.maxSubSteps
     ) {
-      this.elapsedTime += this.config.fixedTimeStep;
-      this.applyIdleMotion();
       this.clampBodySpeeds();
       this.world.step();
       this.enforceSphereBoundary();
