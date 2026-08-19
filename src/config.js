@@ -61,7 +61,7 @@ export const appConfig = {
     enabled: true,
 
     // Rapier отвечает только за gravity, collisions, stacking и sleep.
-    gravity: { x: 0, y: -1.4, z: 0 },
+    gravity: { x: 0, y: -0.95, z: 0 },
     fixedTimeStep: 1 / 60,
     maxSubSteps: 4,
     ccdSubsteps: 4,
@@ -72,7 +72,7 @@ export const appConfig = {
     clipMass: 0.3,
     ballMass: 1,
 
-    friction: 0.8,
+    friction: 0.65,
     restitution: 0.02,
     linearDamping: 0.05,
     angularDamping: 0.7,
@@ -80,30 +80,28 @@ export const appConfig = {
     // Меньше значение — больше задержка и плавнее реакция за указателем.
     pointerSmoothing: 1,
     maxPointerVelocity: 6,
-    maxLinearSpeed: 2,
+    maxLinearSpeed: 3.5,
     maxAngularSpeed: 2,
 
     // Наша часть симуляции: только velocity field + viscous drag.
     // В modelPhysics сила на тело вычисляется как
     // (fluidVelocity - bodyVelocity) * drag * mass.
     fluid: {
-      drag: 2.0,
-      flowDecay: 0.9,
+      drag: 4.0,
+      flowDecay: 0.62,
       minimumEnergy: 0.015,
 
-      // Основное движение жидкости после свайпа.
-      upwardSpeedMin: 1.0,
-      upwardSpeedMax: 1.35,
+      // Сильный вертикальный поток после свайпа.
+      upwardSpeedMin: 2.2,
+      upwardSpeedMax: 3.2,
 
-      // Едва заметное направление вихря от горизонтального свайпа.
-      swirlSpeedMin: 0.02,
-      swirlSpeedMax: 0.05,
+      // Вихрь остаётся вторичным относительно вертикального потока.
+      swirlSpeedMin: 0.035,
+      swirlSpeedMax: 0.08,
 
-      // Плавная индивидуальная неоднородность потока.
-      turbulenceSpeed: 0.055,
+      // Более заметная, но всё ещё плавная неоднородность потока.
+      turbulenceSpeed: 0.09,
 
-      // Дополнительные pseudo-forces отключены: движение задаётся только
-      // локальной скоростью жидкости и drag.
       returnFlowSpeed: 0,
       inwardSpeed: 0,
 
