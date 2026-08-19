@@ -9,29 +9,24 @@ export const appConfig = {
   },
 
   camera: {
-    // "fit" подгоняет камеру автоматически, "manual" берёт координаты ниже.
     mode: "fit",
     fov: 24,
     near: 0.001,
     far: 100,
     breakpoint: 728,
-
     manual: {
       desktop: {
         position: { x: 0, y: 0, z: 2 },
         target: { x: 0, y: 0, z: 0 },
       },
       mobile: {
-        position: { x: 0, y:0, z: 2.5 },
+        position: { x: 0, y: 0, z: 2.5 },
         target: { x: 0, y: 0, z: 0 },
       },
     },
-
     fit: {
-      // 1 = заполнить 100% ширины, 0.9 = оставить по 5% с каждой стороны.
       mobileWidthFill: 1,
       desktopPadding: 1,
-      // Смещение задаёт ракурс и масштабируется вместе с дистанцией камеры.
       positionOffset: { x: 0, y: 2, z: 0 },
       targetOffset: { x: 0, y: 0, z: 0 },
       excludedMeshNames: ["Sphere"],
@@ -59,8 +54,6 @@ export const appConfig = {
 
   physics: {
     enabled: true,
-
-    // Rapier отвечает только за gravity, collisions, stacking и sleep.
     gravity: { x: 0, y: -0.95, z: 0 },
     fixedTimeStep: 1 / 60,
     maxSubSteps: 4,
@@ -77,35 +70,32 @@ export const appConfig = {
     linearDamping: 0.05,
     angularDamping: 0.7,
 
-    // Меньше значение — больше задержка и плавнее реакция за указателем.
     pointerSmoothing: 1,
     maxPointerVelocity: 6,
     maxLinearSpeed: 3.5,
     maxAngularSpeed: 2,
 
-    // Наша часть симуляции: только velocity field + viscous drag.
-    // В modelPhysics сила на тело вычисляется как
-    // (fluidVelocity - bodyVelocity) * drag * mass.
     fluid: {
-      drag: 4.0,
+      drag: 2.1,
       flowDecay: 0.62,
       minimumEnergy: 0.015,
 
-      // Сильный вертикальный поток после свайпа.
-      upwardSpeedMin: 2.2,
-      upwardSpeedMax: 3.2,
+      // Плавный старт общего потока и небольшой разброс старта между телами.
+      rampDuration: 0.28,
+      maxBodyDelay: 0.14,
+      flowFactorMin: 0.7,
+      flowFactorMax: 1.3,
+      dragFactorMin: 0.75,
+      dragFactorMax: 1.25,
 
-      // Вихрь остаётся вторичным относительно вертикального потока.
-      swirlSpeedMin: 0.035,
-      swirlSpeedMax: 0.08,
+      // Поток остаётся сильным, но тела больше не обязаны лететь одной скоростью.
+      upwardSpeedMin: 2.4,
+      upwardSpeedMax: 3.3,
+      swirlSpeedMin: 0.025,
+      swirlSpeedMax: 0.055,
+      turbulenceSpeed: 0.22,
+      dispersionSpeed: 0.12,
 
-      // Более заметная, но всё ещё плавная неоднородность потока.
-      turbulenceSpeed: 0.09,
-
-      returnFlowSpeed: 0,
-      inwardSpeed: 0,
-
-      // У стекла скорость жидкости плавно уменьшается.
       wallStartRadius: 0.72,
       topSlowdownStart: 0.62,
     },
