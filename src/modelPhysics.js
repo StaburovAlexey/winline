@@ -1,19 +1,25 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 
-// GLTFLoader removes dots from node names: clip_low.001 becomes clip_low001.
 const CLIP_NAME_PATTERN = /^clip_low(?:[._]?\d+)?$/;
 const BALL_NAME_PATTERN = /^ball\d+$/;
 const STATIC_BASE_NAME_PATTERN = /^static_base(?:_\d+)?$/;
 const MIN_POINTER_DELTA_TIME = 1 / 240;
 const MAX_POINTER_DELTA_TIME = 0.12;
 
-const SHAKE_THRESHOLD = 0.8;
-const SHAKE_RELEASE_THRESHOLD = 0.25;
-const MAX_SHAKE_VELOCITY = 5;
-const MIN_SHAKE_IMPULSE = 0.18;
-const MAX_SHAKE_IMPULSE = 0.65;
-const SHAKE_SPREAD = 0.12;
+const GESTURE_THRESHOLD = 0.8;
+const GESTURE_RELEASE_THRESHOLD = 0.25;
+const MAX_GESTURE_VELOCITY = 5;
+const HORIZONTAL_DIRECTION_THRESHOLD = 0.12;
+const MIN_LAUNCH_DURATION = 0.42;
+const MAX_LAUNCH_DURATION = 0.68;
+const MIN_LAUNCH_TURNS = 1.2;
+const MAX_LAUNCH_TURNS = 2.05;
+const MIN_TARGET_HEIGHT = 0.84;
+const MAX_TARGET_HEIGHT = 0.91;
+const MIN_TARGET_RADIUS_FACTOR = 0.72;
+const MAX_TARGET_RADIUS_FACTOR = 0.92;
+const RELEASE_SPEED_MULTIPLIER = 0.9;
 const ACTIVE_GRAVITY = { x: 0, y: -0.4, z: 0 };
 
 let rapierInitialization = null;
@@ -22,18 +28,15 @@ function initializeRapier() {
   if (!rapierInitialization) {
     rapierInitialization = RAPIER.init();
   }
-
   return rapierInitialization;
 }
 
 function hashName(name) {
   let hash = 2166136261;
-
   for (let index = 0; index < name.length; index += 1) {
     hash ^= name.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
-
   return (hash >>> 0) / 4294967295;
 }
 
@@ -43,19 +46,24 @@ function createDeterministicVector(seed, offset = 0) {
     Math.sin((seed + offset + 0.53) * 61.7),
     Math.sin((seed + offset + 0.89) * 83.3),
   );
-
   if (vector.lengthSq() < Number.EPSILON) {
     vector.set(1, 0, 0);
   }
-
   return vector.normalize();
+}
+
+function smoothStep(progress) {
+  return progress * progress * (3 - 2 * progress);
+}
+
+function smoothAngularProgress(progress) {
+  return progress * progress * (2 - progress);
 }
 
 function getGeometryBox(geometry) {
   if (!geometry.boundingBox) {
     geometry.computeBoundingBox();
   }
-
   return geometry.boundingBox;
 }
 
@@ -63,13 +71,11 @@ function getGeometrySphere(geometry) {
   if (!geometry.boundingSphere) {
     geometry.computeBoundingSphere();
   }
-
   return geometry.boundingSphere;
 }
 
 function createTrimeshData(mesh, rootInverseWorldMatrix) {
   const positionAttribute = mesh.geometry.attributes.position;
-
   if (!positionAttribute) {
     throw new Error(`У объекта ${mesh.name} отсутствуют вершины`);
   }
@@ -78,14 +84,11 @@ function createTrimeshData(mesh, rootInverseWorldMatrix) {
     rootInverseWorldMatrix,
     mesh.matrixWorld,
   );
-
   const vertices = new Float32Array(positionAttribute.count * 3);
   const vertex = new THREE.Vector3();
 
   for (let index = 0; index < positionAttribute.count; index += 1) {
-    vertex
-      .fromBufferAttribute(positionAttribute, index)
-      .applyMatrix4(rootLocalMatrix);
+    vertex.fromBufferAttribute(positionAttribute, index).applyMatrix4(rootLocalMatrix);
     vertices[index * 3] = vertex.x;
     vertices[index * 3 + 1] = vertex.y;
     vertices[index * 3 + 2] = vertex.z;
@@ -100,10 +103,7 @@ function createTrimeshData(mesh, rootInverseWorldMatrix) {
 }
 
 function createStaticTrimesh(world, mesh, config, rootInverseWorldMatrix) {
-  const { vertices, indices } = createTrimeshData(
-    mesh,
-    rootInverseWorldMatrix,
-  );
+  const { vertices, indices } = createTrimeshData(mesh, rootInverseWorldMatrix);
   const collider = RAPIER.ColliderDesc.trimesh(
     vertices,
     indices,
@@ -116,9 +116,7 @@ function createStaticTrimesh(world, mesh, config, rootInverseWorldMatrix) {
 }
 
 function getScaledBoxCenter(node, box) {
-  return box
-    .getCenter(new THREE.Vector3())
-    .multiply(node.scale);
+  return box.getCenter(new THREE.Vector3()).multiply(node.scale);
 }
 
 function createClipCollider(node, config) {
@@ -132,12 +130,13 @@ function createClipCollider(node, config) {
   );
   const halfHeight = visualHalfHeight * config.clipColliderScale;
   const radius = visualRadius * config.clipColliderScale;
+  const visualExtent = Math.hypot(visualRadius, visualHalfHeight);
 
   return {
     descriptor: RAPIER.ColliderDesc.cylinder(halfHeight, radius),
     center,
-    boundaryRadius:
-      center.length() + Math.hypot(visualRadius, visualHalfHeight),
+    boundaryRadius: center.length() + visualExtent,
+    launchClearance: visualExtent,
     mass: config.clipMass,
   };
 }
@@ -158,13 +157,13 @@ function createBallCollider(node, config) {
     descriptor: RAPIER.ColliderDesc.ball(radius),
     center,
     boundaryRadius: center.length() + visualRadius,
+    launchClearance: visualRadius,
     mass: config.ballMass,
   };
 }
 
 function createBoundary(sphereNode) {
   const box = getGeometryBox(sphereNode.geometry);
-
   sphereNode.updateMatrix();
 
   return {
@@ -188,43 +187,46 @@ class ModelPhysics {
     this.boundary = createBoundary(sphereNode);
     this.bodies = [];
     this.accumulator = 0;
-    this.isActivated = false;
-    this.shakeArmed = true;
+    this.phase = "idle";
+    this.launchElapsed = 0;
+    this.launchDuration = MAX_LAUNCH_DURATION;
+    this.launchTurns = MIN_LAUNCH_TURNS;
+    this.swirlDirection = 1;
+    this.gestureArmed = true;
     this.activeTouchPointerId = null;
     this.lastPointer = null;
     this.rawPointerVelocity = new THREE.Vector2();
     this.smoothedPointerVelocity = new THREE.Vector2();
     this.eventController = new AbortController();
 
-    this.cameraRight = new THREE.Vector3();
-    this.cameraUp = new THREE.Vector3();
-    this.cameraForward = new THREE.Vector3();
-    this.localCameraRight = new THREE.Vector3();
-    this.localCameraUp = new THREE.Vector3();
-    this.localCameraForward = new THREE.Vector3();
-    this.rootWorldQuaternion = new THREE.Quaternion();
-    this.impulse = new THREE.Vector3();
-    this.torqueImpulse = new THREE.Vector3();
     this.boundaryPosition = new THREE.Vector3();
     this.boundaryOffset = new THREE.Vector3();
     this.boundaryNormal = new THREE.Vector3();
+    this.matrixScale = new THREE.Vector3();
+    this.matrixPosition = new THREE.Vector3();
+    this.matrixQuaternion = new THREE.Quaternion();
+    this.rotationDelta = new THREE.Quaternion();
+
+    this.boundary.matrix.decompose(
+      this.matrixPosition,
+      this.matrixQuaternion,
+      this.matrixScale,
+    );
+    this.launchCenter = this.boundary.center.clone().applyMatrix4(this.boundary.matrix);
+    this.launchRadii = this.boundary.radii.clone().multiply(
+      new THREE.Vector3(
+        Math.abs(this.matrixScale.x),
+        Math.abs(this.matrixScale.y),
+        Math.abs(this.matrixScale.z),
+      ),
+    );
 
     root.updateMatrixWorld(true);
     const rootInverseWorldMatrix = root.matrixWorld.clone().invert();
 
-    createStaticTrimesh(
-      this.world,
-      sphereNode,
-      config,
-      rootInverseWorldMatrix,
-    );
+    createStaticTrimesh(this.world, sphereNode, config, rootInverseWorldMatrix);
     staticNodes.forEach((node) => {
-      createStaticTrimesh(
-        this.world,
-        node,
-        config,
-        rootInverseWorldMatrix,
-      );
+      createStaticTrimesh(this.world, node, config, rootInverseWorldMatrix);
     });
     movingNodes.forEach((node) => this.createDynamicBody(node));
     this.bindPointerEvents();
@@ -262,14 +264,14 @@ class ModelPhysics {
     this.world.createCollider(colliderData.descriptor, body);
 
     const seed = hashName(node.name);
-
     this.bodies.push({
       node,
       body,
+      seed,
       boundaryRadius: colliderData.boundaryRadius,
-      torqueLever: createDeterministicVector(seed, 0.37).multiplyScalar(
-        colliderData.boundaryRadius,
-      ),
+      launchClearance: colliderData.launchClearance,
+      spinAxis: createDeterministicVector(seed, 0.73),
+      launch: null,
     });
   }
 
@@ -278,7 +280,7 @@ class ModelPhysics {
 
     this.canvas.addEventListener("pointerenter", (event) => {
       if (event.pointerType === "mouse") {
-        this.shakeArmed = true;
+        this.gestureArmed = true;
         this.resetPointerSmoothing();
         this.rememberPointer(event);
       }
@@ -288,10 +290,9 @@ class ModelPhysics {
       if (!event.isPrimary || event.pointerType === "mouse") {
         return;
       }
-
       this.activeTouchPointerId = event.pointerId;
       this.canvas.setPointerCapture(event.pointerId);
-      this.shakeArmed = true;
+      this.gestureArmed = true;
       this.resetPointerSmoothing();
       this.rememberPointer(event);
     }, options);
@@ -300,21 +301,19 @@ class ModelPhysics {
       if (!event.isPrimary) {
         return;
       }
-
       if (
         event.pointerType !== "mouse" &&
         event.pointerId !== this.activeTouchPointerId
       ) {
         return;
       }
-
       this.handlePointerMove(event);
     }, options);
 
     this.canvas.addEventListener("pointerleave", (event) => {
       if (event.pointerType === "mouse") {
         this.lastPointer = null;
-        this.shakeArmed = true;
+        this.gestureArmed = true;
         this.resetPointerSmoothing();
       }
     }, options);
@@ -323,14 +322,12 @@ class ModelPhysics {
       if (event.pointerId !== this.activeTouchPointerId) {
         return;
       }
-
       if (this.canvas.hasPointerCapture(event.pointerId)) {
         this.canvas.releasePointerCapture(event.pointerId);
       }
-
       this.activeTouchPointerId = null;
       this.lastPointer = null;
-      this.shakeArmed = true;
+      this.gestureArmed = true;
       this.resetPointerSmoothing();
     };
 
@@ -359,7 +356,6 @@ class ModelPhysics {
     }
 
     const deltaTime = (event.timeStamp - this.lastPointer.time) / 1000;
-
     if (deltaTime <= 0 || deltaTime > MAX_POINTER_DELTA_TIME) {
       this.resetPointerSmoothing();
       this.rememberPointer(event);
@@ -382,16 +378,14 @@ class ModelPhysics {
       1,
     );
     const smoothingAlpha =
-      1 - Math.pow(
+      1 -
+      Math.pow(
         1 - pointerSmoothing,
         safeDeltaTime / this.config.fixedTimeStep,
       );
 
     this.rawPointerVelocity.set(velocityX, velocityY);
-    this.smoothedPointerVelocity.lerp(
-      this.rawPointerVelocity,
-      smoothingAlpha,
-    );
+    this.smoothedPointerVelocity.lerp(this.rawPointerVelocity, smoothingAlpha);
 
     this.rememberPointer(event);
     this.applyPointerVelocity(
@@ -400,99 +394,264 @@ class ModelPhysics {
     );
   }
 
-  updateCameraAxes() {
-    this.camera.updateMatrixWorld();
-    this.root.updateMatrixWorld();
-
-    this.cameraRight.setFromMatrixColumn(this.camera.matrixWorld, 0);
-    this.cameraUp.setFromMatrixColumn(this.camera.matrixWorld, 1);
-    this.camera.getWorldDirection(this.cameraForward);
-    this.root.getWorldQuaternion(this.rootWorldQuaternion).invert();
-    this.localCameraRight
-      .copy(this.cameraRight)
-      .applyQuaternion(this.rootWorldQuaternion)
-      .normalize();
-    this.localCameraUp
-      .copy(this.cameraUp)
-      .applyQuaternion(this.rootWorldQuaternion)
-      .normalize();
-    this.localCameraForward
-      .copy(this.cameraForward)
-      .applyQuaternion(this.rootWorldQuaternion)
-      .normalize();
-  }
-
-  activatePhysics() {
-    if (this.isActivated) {
-      return;
-    }
-
-    this.isActivated = true;
-    this.accumulator = 0;
-
-    for (const { body } of this.bodies) {
-      body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
-      body.setLinvel({ x: 0, y: 0, z: 0 }, true);
-      body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-      body.resetForces(false);
-      body.resetTorques(false);
-    }
-  }
-
-  applyPointerVelocity(_velocityX, velocityY) {
+  applyPointerVelocity(velocityX, velocityY) {
     const upwardSpeed = Math.max(velocityY, 0);
+    const gestureSpeed = Math.hypot(velocityX, upwardSpeed);
 
-    if (upwardSpeed <= SHAKE_RELEASE_THRESHOLD) {
-      this.shakeArmed = true;
+    if (gestureSpeed <= GESTURE_RELEASE_THRESHOLD) {
+      this.gestureArmed = true;
       return;
     }
 
-    if (!this.shakeArmed || upwardSpeed < SHAKE_THRESHOLD) {
+    if (
+      this.phase === "launch" ||
+      !this.gestureArmed ||
+      gestureSpeed < GESTURE_THRESHOLD
+    ) {
       return;
     }
 
-    this.shakeArmed = false;
-    this.activatePhysics();
-    this.updateCameraAxes();
+    this.gestureArmed = false;
 
     const maximumVelocity = Math.min(
-      MAX_SHAKE_VELOCITY,
+      MAX_GESTURE_VELOCITY,
       this.config.maxPointerVelocity,
     );
-    const cappedVelocity = Math.min(upwardSpeed, maximumVelocity);
-    const normalizedStrength = THREE.MathUtils.clamp(
-      (cappedVelocity - SHAKE_THRESHOLD) /
-        Math.max(maximumVelocity - SHAKE_THRESHOLD, Number.EPSILON),
+    const cappedVelocity = Math.min(gestureSpeed, maximumVelocity);
+    const strength = THREE.MathUtils.clamp(
+      (cappedVelocity - GESTURE_THRESHOLD) /
+        Math.max(maximumVelocity - GESTURE_THRESHOLD, Number.EPSILON),
       0,
       1,
     );
-    const impulseStrength = THREE.MathUtils.lerp(
-      MIN_SHAKE_IMPULSE,
-      MAX_SHAKE_IMPULSE,
-      normalizedStrength,
+
+    let direction = this.swirlDirection;
+    if (Math.abs(velocityX) >= HORIZONTAL_DIRECTION_THRESHOLD) {
+      direction = Math.sign(velocityX);
+    } else {
+      direction *= -1;
+    }
+
+    this.startLaunch(strength, direction);
+  }
+
+  startLaunch(strength, direction) {
+    this.phase = "launch";
+    this.accumulator = 0;
+    this.launchElapsed = 0;
+    this.swirlDirection = direction || 1;
+    this.launchDuration = THREE.MathUtils.lerp(
+      MAX_LAUNCH_DURATION,
+      MIN_LAUNCH_DURATION,
+      strength,
+    );
+    this.launchTurns = THREE.MathUtils.lerp(
+      MIN_LAUNCH_TURNS,
+      MAX_LAUNCH_TURNS,
+      strength,
     );
 
     for (const item of this.bodies) {
-      const mass = item.body.mass();
-      const horizontalSpread =
-        (Math.random() * 2 - 1) * SHAKE_SPREAD * impulseStrength * mass;
-      const depthSpread =
-        (Math.random() * 2 - 1) * SHAKE_SPREAD * impulseStrength * mass;
+      const { body, node, seed, launchClearance } = item;
+      const translation = body.translation();
+      const rotation = body.rotation();
 
-      this.impulse
-        .copy(this.localCameraUp)
-        .multiplyScalar(impulseStrength * mass)
-        .addScaledVector(this.localCameraRight, horizontalSpread)
-        .addScaledVector(this.localCameraForward, depthSpread);
+      node.position.set(translation.x, translation.y, translation.z);
+      node.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
 
-      item.body.applyImpulse(this.impulse, true);
+      body.setBodyType(RAPIER.RigidBodyType.Fixed, true);
+      body.setLinvel({ x: 0, y: 0, z: 0 }, false);
+      body.setAngvel({ x: 0, y: 0, z: 0 }, false);
+      body.resetForces(false);
+      body.resetTorques(false);
 
-      this.torqueImpulse
-        .copy(item.torqueLever)
-        .cross(this.impulse)
-        .multiplyScalar(this.config.pointerTorqueGain);
-      item.body.applyTorqueImpulse(this.torqueImpulse, true);
+      const offsetX = node.position.x - this.launchCenter.x;
+      const offsetZ = node.position.z - this.launchCenter.z;
+      const startRadius = Math.hypot(offsetX, offsetZ);
+      const startAngle = Math.atan2(offsetZ, offsetX);
+
+      const heightFactor = THREE.MathUtils.lerp(
+        MIN_TARGET_HEIGHT,
+        MAX_TARGET_HEIGHT,
+        seed,
+      );
+      const targetY = Math.min(
+        this.launchCenter.y +
+          this.launchRadii.y * heightFactor -
+          launchClearance * 0.35,
+        this.launchCenter.y + this.launchRadii.y - launchClearance,
+      );
+
+      const normalizedY = THREE.MathUtils.clamp(
+        (targetY - this.launchCenter.y) /
+          Math.max(this.launchRadii.y, Number.EPSILON),
+        -0.98,
+        0.98,
+      );
+      const crossSectionScale = Math.sqrt(
+        Math.max(0.04, 1 - normalizedY * normalizedY),
+      );
+      const horizontalRadius = Math.min(
+        this.launchRadii.x,
+        this.launchRadii.z,
+      );
+      const safeRadius = Math.max(
+        0,
+        horizontalRadius * crossSectionScale - launchClearance,
+      );
+      const radiusFactor = THREE.MathUtils.lerp(
+        MIN_TARGET_RADIUS_FACTOR,
+        MAX_TARGET_RADIUS_FACTOR,
+        1 - seed,
+      );
+      const minimumOrbitRadius =
+        safeRadius * THREE.MathUtils.lerp(0.12, 0.22, seed);
+      const targetRadius = Math.min(
+        Math.max(startRadius * radiusFactor, minimumOrbitRadius),
+        safeRadius * 0.82,
+      );
+      const turnVariation = 0.9 + seed * 0.2;
+      const spinSpeed =
+        THREE.MathUtils.lerp(2.2, 4.6, seed) * (0.75 + strength * 0.5);
+
+      item.launch = {
+        startPosition: node.position.clone(),
+        startQuaternion: node.quaternion.clone(),
+        previousPosition: node.position.clone(),
+        velocity: new THREE.Vector3(),
+        startRadius,
+        targetRadius,
+        startAngle,
+        targetY,
+        turnVariation,
+        spinSpeed,
+      };
     }
+  }
+
+  updateLaunch(deltaTime) {
+    this.launchElapsed = Math.min(
+      this.launchElapsed + Math.max(deltaTime, 0),
+      this.launchDuration,
+    );
+
+    const progress = THREE.MathUtils.clamp(
+      this.launchElapsed / Math.max(this.launchDuration, Number.EPSILON),
+      0,
+      1,
+    );
+    const verticalProgress = smoothStep(progress);
+    const radialProgress = smoothStep(progress);
+    const angularProgress = smoothAngularProgress(progress);
+    const frameDelta = Math.max(deltaTime, MIN_POINTER_DELTA_TIME);
+
+    for (const item of this.bodies) {
+      const launch = item.launch;
+      if (!launch) {
+        continue;
+      }
+
+      launch.previousPosition.copy(item.node.position);
+
+      const radius = THREE.MathUtils.lerp(
+        launch.startRadius,
+        launch.targetRadius,
+        radialProgress,
+      );
+      const angle =
+        launch.startAngle +
+        this.swirlDirection *
+          Math.PI *
+          2 *
+          this.launchTurns *
+          launch.turnVariation *
+          angularProgress;
+
+      item.node.position.set(
+        this.launchCenter.x + Math.cos(angle) * radius,
+        THREE.MathUtils.lerp(
+          launch.startPosition.y,
+          launch.targetY,
+          verticalProgress,
+        ),
+        this.launchCenter.z + Math.sin(angle) * radius,
+      );
+
+      const spinAngle =
+        this.swirlDirection * launch.spinSpeed * this.launchElapsed;
+      this.rotationDelta.setFromAxisAngle(item.spinAxis, spinAngle);
+      item.node.quaternion.copy(launch.startQuaternion).multiply(this.rotationDelta);
+
+      launch.velocity
+        .copy(item.node.position)
+        .sub(launch.previousPosition)
+        .divideScalar(frameDelta);
+    }
+
+    if (progress >= 1) {
+      this.releaseToPhysics();
+    }
+  }
+
+  releaseToPhysics() {
+    for (const item of this.bodies) {
+      const { body, node, launch } = item;
+      if (!launch) {
+        continue;
+      }
+
+      const releaseVelocity = launch.velocity
+        .clone()
+        .multiplyScalar(RELEASE_SPEED_MULTIPLIER);
+      const releaseSpeed = releaseVelocity.length();
+      if (releaseSpeed > this.config.maxLinearSpeed) {
+        releaseVelocity.multiplyScalar(this.config.maxLinearSpeed / releaseSpeed);
+      }
+
+      const angularVelocity = item.spinAxis
+        .clone()
+        .multiplyScalar(
+          this.swirlDirection *
+          Math.min(launch.spinSpeed, this.config.maxAngularSpeed),
+        );
+
+      body.setTranslation(
+        { x: node.position.x, y: node.position.y, z: node.position.z },
+        false,
+      );
+      body.setRotation(
+        {
+          x: node.quaternion.x,
+          y: node.quaternion.y,
+          z: node.quaternion.z,
+          w: node.quaternion.w,
+        },
+        false,
+      );
+      body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+      body.setLinvel(
+        {
+          x: releaseVelocity.x,
+          y: releaseVelocity.y,
+          z: releaseVelocity.z,
+        },
+        true,
+      );
+      body.setAngvel(
+        {
+          x: angularVelocity.x,
+          y: angularVelocity.y,
+          z: angularVelocity.z,
+        },
+        true,
+      );
+      body.resetForces(false);
+      body.resetTorques(false);
+      item.launch = null;
+    }
+
+    this.phase = "physics";
+    this.accumulator = 0;
   }
 
   clampBodySpeeds() {
@@ -507,11 +666,14 @@ class ModelPhysics {
 
       if (linearSpeed > maxLinearSpeed) {
         const scale = maxLinearSpeed / linearSpeed;
-        body.setLinvel({
-          x: linearVelocity.x * scale,
-          y: linearVelocity.y * scale,
-          z: linearVelocity.z * scale,
-        }, true);
+        body.setLinvel(
+          {
+            x: linearVelocity.x * scale,
+            y: linearVelocity.y * scale,
+            z: linearVelocity.z * scale,
+          },
+          true,
+        );
       }
 
       const angularVelocity = body.angvel();
@@ -523,11 +685,14 @@ class ModelPhysics {
 
       if (angularSpeed > this.config.maxAngularSpeed) {
         const scale = this.config.maxAngularSpeed / angularSpeed;
-        body.setAngvel({
-          x: angularVelocity.x * scale,
-          y: angularVelocity.y * scale,
-          z: angularVelocity.z * scale,
-        }, true);
+        body.setAngvel(
+          {
+            x: angularVelocity.x * scale,
+            y: angularVelocity.y * scale,
+            z: angularVelocity.z * scale,
+          },
+          true,
+        );
       }
     }
   }
@@ -589,11 +754,14 @@ class ModelPhysics {
 
       if (outwardSpeed > 0) {
         const reflection = (1 + this.config.restitution) * outwardSpeed;
-        item.body.setLinvel({
-          x: velocity.x - this.boundaryNormal.x * reflection,
-          y: velocity.y - this.boundaryNormal.y * reflection,
-          z: velocity.z - this.boundaryNormal.z * reflection,
-        }, true);
+        item.body.setLinvel(
+          {
+            x: velocity.x - this.boundaryNormal.x * reflection,
+            y: velocity.y - this.boundaryNormal.y * reflection,
+            z: velocity.z - this.boundaryNormal.z * reflection,
+          },
+          true,
+        );
       }
     }
   }
@@ -609,7 +777,11 @@ class ModelPhysics {
   }
 
   update(deltaTime) {
-    if (!this.isActivated) {
+    if (this.phase === "launch") {
+      this.updateLaunch(deltaTime);
+      return;
+    }
+    if (this.phase !== "physics") {
       return;
     }
 
