@@ -22,8 +22,8 @@ export const appConfig = {
         target: { x: 0, y: 0, z: 0 },
       },
       mobile: {
-        position: { x: 0, y: 0, z: 2.5 },
-        target: { x: 0, y:0, z: 0 },
+        position: { x: 0, y:0, z: 2.5 },
+        target: { x: 0, y: 0, z: 0 },
       },
     },
 
@@ -59,40 +59,57 @@ export const appConfig = {
 
   physics: {
     enabled: true,
-    // Эффективная гравитация уже учитывает выталкивание жидкостью.
+
+    // Rapier отвечает только за gravity, collisions, stacking и sleep.
     gravity: { x: 0, y: -1.4, z: 0 },
     fixedTimeStep: 1 / 60,
     maxSubSteps: 4,
     ccdSubsteps: 4,
     additionalSolverIterations: 4,
+
     clipColliderScale: 1,
     ballColliderScale: 1,
     clipMass: 0.3,
     ballMass: 1,
+
     friction: 0.8,
     restitution: 0.02,
     linearDamping: 0.05,
     angularDamping: 0.7,
+
     // Меньше значение — больше задержка и плавнее реакция за указателем.
     pointerSmoothing: 1,
     maxPointerVelocity: 6,
     maxLinearSpeed: 2,
     maxAngularSpeed: 2,
 
-    // Упрощённая модель глицерина: поток + вязкое сопротивление.
+    // Наша часть симуляции: только velocity field + viscous drag.
+    // В modelPhysics сила на тело вычисляется как
+    // (fluidVelocity - bodyVelocity) * drag * mass.
     fluid: {
-      drag: 2.2,
-      flowDecay: 0.95,
+      drag: 2.0,
+      flowDecay: 0.9,
       minimumEnergy: 0.015,
-      upwardSpeedMin: 1.05,
-      upwardSpeedMax: 1.45,
-      swirlSpeedMin: 0.035,
-      swirlSpeedMax: 0.075,
-      turbulenceSpeed: 0.075,
-      returnFlowSpeed: 0.42,
-      inwardSpeed: 0.16,
-      wallStartRadius: 0.68,
-      topSlowdownStart: 0.58,
+
+      // Основное движение жидкости после свайпа.
+      upwardSpeedMin: 1.0,
+      upwardSpeedMax: 1.35,
+
+      // Едва заметное направление вихря от горизонтального свайпа.
+      swirlSpeedMin: 0.02,
+      swirlSpeedMax: 0.05,
+
+      // Плавная индивидуальная неоднородность потока.
+      turbulenceSpeed: 0.055,
+
+      // Дополнительные pseudo-forces отключены: движение задаётся только
+      // локальной скоростью жидкости и drag.
+      returnFlowSpeed: 0,
+      inwardSpeed: 0,
+
+      // У стекла скорость жидкости плавно уменьшается.
+      wallStartRadius: 0.72,
+      topSlowdownStart: 0.62,
     },
   },
 
