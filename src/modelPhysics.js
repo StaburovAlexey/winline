@@ -7,30 +7,23 @@ const STATIC_BASE_NAME_PATTERN = /^static_base(?:_\d+)?$/;
 
 const MIN_POINTER_DELTA_TIME = 1 / 240;
 const MAX_POINTER_DELTA_TIME = 0.12;
-const GESTURE_THRESHOLD = 0.8;
-const GESTURE_RELEASE_THRESHOLD = 0.25;
+
+const GESTURE_THRESHOLD = 0.65;
+const GESTURE_RELEASE_THRESHOLD = 0.2;
 const MAX_GESTURE_VELOCITY = 5;
 const HORIZONTAL_DIRECTION_THRESHOLD = 0.12;
 
-const PRESETTLE_MIN_STEPS = 120;
-const PRESETTLE_MAX_STEPS = 600;
-const PRESETTLE_STABLE_STEPS = 30;
-const PRESETTLE_LINEAR_SPEED = 0.01;
-const PRESETTLE_ANGULAR_SPEED = 0.05;
-
 const DEFAULT_FLUID = {
-  drag: 2.2,
-  flowDecay: 0.95,
+  drag: 4,
+  flowDecay: 0.62,
   minimumEnergy: 0.015,
-  upwardSpeedMin: 1.05,
-  upwardSpeedMax: 1.45,
+  upwardSpeedMin: 2.2,
+  upwardSpeedMax: 3.2,
   swirlSpeedMin: 0.035,
-  swirlSpeedMax: 0.075,
-  turbulenceSpeed: 0.075,
-  returnFlowSpeed: 0.42,
-  inwardSpeed: 0.16,
-  wallStartRadius: 0.68,
-  topSlowdownStart: 0.58,
+  swirlSpeedMax: 0.08,
+  turbulenceSpeed: 0.09,
+  wallStartRadius: 0.72,
+  topSlowdownStart: 0.62,
 };
 
 let rapierInitialization = null;
@@ -135,11 +128,11 @@ function createClipCollider(node, config) {
     size.z * 0.5 * Math.abs(node.scale.z),
   );
 
-  const halfHeight = visualHalfHeight * config.clipColliderScale;
-  const radius = visualRadius * config.clipColliderScale;
-
   return {
-    descriptor: RAPIER.ColliderDesc.cylinder(halfHeight, radius),
+    descriptor: RAPIER.ColliderDesc.cylinder(
+      visualHalfHeight * config.clipColliderScale,
+      visualRadius * config.clipColliderScale,
+    ),
     center,
     boundaryRadius:
       center.length() + Math.hypot(visualRadius, visualHalfHeight),
@@ -184,7 +177,15 @@ function createBoundary(sphereNode) {
 }
 
 class ModelPhysics {
-  constructor({ root, camera, canvas, config, sphereNode, movingNodes, staticNodes }) {
+  constructor({
+    root,
+    camera,
+    canvas,
+    config,
+    sphereNode,
+    movingNodes,
+    staticNodes,
+  }) {
     this.root = root;
     this.camera = camera;
     this.canvas = canvas;
@@ -204,6 +205,7 @@ class ModelPhysics {
     this.fluidStrength = 0;
     this.swirlDirection = 1;
     this.flowSerial = 0;
+    this.hasInteracted = false;
 
     this.gestureArmed = true;
     this.activeTouchPointerId = null;
@@ -257,9 +259,11 @@ class ModelPhysics {
       );
     });
 
-    movingNodes.forEach((node) => this.createDynamicBody(node));
+    movingNodes.forEach((node) => {
+      this.createDynamicBody(node);
+    });
 
-    this.preSettleBodies();
+    this.freezeInitialLayout();
     this.syncNodes();
     this.bindPointerEvents();
   }
@@ -307,11 +311,10 @@ class ModelPhysics {
     this.bodies.push({
       node,
       body,
-      seed,
       boundaryRadius: colliderData.boundaryRadius,
-      dragFactor: THREE.MathUtils.lerp(0.88, 1.12, seed),
+      dragFactor: THREE.MathUtils.lerp(0.9, 1.1, seed),
       turbulenceFactor: THREE.MathUtils.lerp(
-        0.75,
+        0.8,
         1.2,
         hashName(`${node.name}:turbulence`),
       ),
@@ -319,70 +322,20 @@ class ModelPhysics {
       phaseY: hashName(`${node.name}:phase-y`) * Math.PI * 2,
       phaseZ: hashName(`${node.name}:phase-z`) * Math.PI * 2,
       frequency: THREE.MathUtils.lerp(
-        0.8,
-        1.35,
+        0.9,
+        1.4,
         hashName(`${node.name}:frequency`),
       ),
     });
   }
 
-  areBodiesSettled() {
-    for (const { body } of this.bodies) {
-      if (body.isSleeping()) {
-        continue;
-      }
-
-      const linearVelocity = body.linvel();
-      const angularVelocity = body.angvel();
-      const linearSpeed = Math.hypot(
-        linearVelocity.x,
-        linearVelocity.y,
-        linearVelocity.z,
-      );
-      const angularSpeed = Math.hypot(
-        angularVelocity.x,
-        angularVelocity.y,
-        angularVelocity.z,
-      );
-
-      if (
-        linearSpeed > PRESETTLE_LINEAR_SPEED ||
-        angularSpeed > PRESETTLE_ANGULAR_SPEED
-      ) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-  preSettleBodies() {
-    let stableSteps = 0;
-
-    for (let step = 0; step < PRESETTLE_MAX_STEPS; step += 1) {
-      this.applyFluidForces(false);
-      this.clampBodySpeeds();
-      this.world.step();
-      this.enforceSphereBoundary();
-      this.clampBodySpeeds();
-
-      if (step < PRESETTLE_MIN_STEPS) {
-        continue;
-      }
-
-      if (this.areBodiesSettled()) {
-        stableSteps += 1;
-        if (stableSteps >= PRESETTLE_STABLE_STEPS) {
-          break;
-        }
-      } else {
-        stableSteps = 0;
-      }
-    }
-
+  freezeInitialLayout() {
     for (const { body } of this.bodies) {
       body.resetForces(false);
       body.resetTorques(false);
+      body.setLinvel({ x: 0, y: 0, z: 0 }, false);
+      body.setAngvel({ x: 0, y: 0, z: 0 }, false);
+      body.sleep();
     }
   }
 
@@ -404,12 +357,15 @@ class ModelPhysics {
     this.canvas.addEventListener(
       "pointerdown",
       (event) => {
-        if (!event.isPrimary || event.pointerType === "mouse") {
+        if (!event.isPrimary) {
           return;
         }
 
-        this.activeTouchPointerId = event.pointerId;
-        this.canvas.setPointerCapture(event.pointerId);
+        if (event.pointerType !== "mouse") {
+          this.activeTouchPointerId = event.pointerId;
+          this.canvas.setPointerCapture(event.pointerId);
+        }
+
         this.gestureArmed = true;
         this.resetPointerSmoothing();
         this.rememberPointer(event);
@@ -449,11 +405,17 @@ class ModelPhysics {
     );
 
     const releasePointer = (event) => {
-      if (event.pointerId !== this.activeTouchPointerId) {
+      if (
+        event.pointerType !== "mouse" &&
+        event.pointerId !== this.activeTouchPointerId
+      ) {
         return;
       }
 
-      if (this.canvas.hasPointerCapture(event.pointerId)) {
+      if (
+        event.pointerType !== "mouse" &&
+        this.canvas.hasPointerCapture(event.pointerId)
+      ) {
         this.canvas.releasePointerCapture(event.pointerId);
       }
 
@@ -497,10 +459,12 @@ class ModelPhysics {
 
     const rect = this.canvas.getBoundingClientRect();
     const safeDeltaTime = Math.max(deltaTime, MIN_POINTER_DELTA_TIME);
+
     const velocityX =
       (event.clientX - this.lastPointer.x) /
       Math.max(rect.width, 1) /
       safeDeltaTime;
+
     const velocityY =
       -(event.clientY - this.lastPointer.y) /
       Math.max(rect.height, 1) /
@@ -526,6 +490,7 @@ class ModelPhysics {
     );
 
     this.rememberPointer(event);
+
     this.applyPointerVelocity(
       this.smoothedPointerVelocity.x,
       this.smoothedPointerVelocity.y,
@@ -561,6 +526,7 @@ class ModelPhysics {
     );
 
     let direction = this.swirlDirection;
+
     if (Math.abs(velocityX) >= HORIZONTAL_DIRECTION_THRESHOLD) {
       direction = Math.sign(velocityX);
     } else {
@@ -571,16 +537,19 @@ class ModelPhysics {
   }
 
   startFluidMotion(strength, direction) {
+    this.hasInteracted = true;
     this.fluidStrength = strength;
     this.fluidEnergy = Math.max(
-      this.fluidEnergy * 0.55,
-      THREE.MathUtils.lerp(0.72, 1, strength),
+      this.fluidEnergy * 0.45,
+      THREE.MathUtils.lerp(0.9, 1.25, strength),
     );
     this.fluidAge = 0;
     this.flowSerial += 1;
     this.swirlDirection = direction || 1;
 
     for (const { body } of this.bodies) {
+      body.resetForces(false);
+      body.resetTorques(false);
       body.wakeUp();
     }
   }
@@ -616,25 +585,21 @@ class ModelPhysics {
       1,
     );
 
+    const wallAttenuation = THREE.MathUtils.lerp(1, 0.55, wallFactor);
+    const topAttenuation = THREE.MathUtils.lerp(1, 0.4, topFactor);
+
     const upwardBase = THREE.MathUtils.lerp(
       this.fluid.upwardSpeedMin,
       this.fluid.upwardSpeedMax,
       this.fluidStrength,
     );
 
-    const upwardFlow = upwardBase * (1 - 0.45 * wallFactor) * (1 - topFactor);
-    const returnFlow = this.fluid.returnFlowSpeed * wallFactor;
-
     let tangentX = 0;
     let tangentZ = 0;
-    let inwardX = 0;
-    let inwardZ = 0;
 
     if (radialLength > Number.EPSILON) {
       tangentX = -dz / radialLength;
       tangentZ = dx / radialLength;
-      inwardX = -dx / radialLength;
-      inwardZ = -dz / radialLength;
     }
 
     const swirlSpeed = THREE.MathUtils.lerp(
@@ -643,42 +608,71 @@ class ModelPhysics {
       this.fluidStrength,
     );
 
-    const time = this.fluidAge * item.frequency + this.flowSerial * 0.67;
+    const time =
+      this.fluidAge * item.frequency +
+      this.flowSerial * 0.67;
+
     const turbulence =
-      this.fluid.turbulenceSpeed * item.turbulenceFactor;
+      this.fluid.turbulenceSpeed *
+      item.turbulenceFactor *
+      wallAttenuation;
 
     const turbulenceX =
-      Math.sin(time + item.phaseX + normalizedY * 2.1) * turbulence;
+      Math.sin(time + item.phaseX + normalizedY * 2.1) *
+      turbulence;
+
     const turbulenceY =
       Math.sin(time * 0.71 + item.phaseY + normalizedX * 1.7) *
       turbulence *
-      0.28;
+      0.35;
+
     const turbulenceZ =
-      Math.cos(time * 0.89 + item.phaseZ + normalizedY * 1.9) * turbulence;
+      Math.cos(time * 0.89 + item.phaseZ + normalizedY * 1.9) *
+      turbulence;
 
     const energy = this.fluidEnergy;
 
     return {
       x:
-        (tangentX * swirlSpeed * this.swirlDirection +
-          inwardX * this.fluid.inwardSpeed * wallFactor +
-          turbulenceX) *
+        (
+          tangentX *
+            swirlSpeed *
+            this.swirlDirection *
+            wallAttenuation +
+          turbulenceX
+        ) *
         energy,
-      y: (upwardFlow - returnFlow + turbulenceY) * energy,
+      y:
+        (
+          upwardBase *
+            wallAttenuation *
+            topAttenuation +
+          turbulenceY
+        ) *
+        energy,
       z:
-        (tangentZ * swirlSpeed * this.swirlDirection +
-          inwardZ * this.fluid.inwardSpeed * wallFactor +
-          turbulenceZ) *
+        (
+          tangentZ *
+            swirlSpeed *
+            this.swirlDirection *
+            wallAttenuation +
+          turbulenceZ
+        ) *
         energy,
     };
   }
 
-  applyFluidForces(allowFlow = true) {
+  applyFluidForces() {
     const flowActive =
-      allowFlow && this.fluidEnergy > this.fluid.minimumEnergy;
+      this.hasInteracted &&
+      this.fluidEnergy > this.fluid.minimumEnergy;
 
     for (const item of this.bodies) {
       const { body } = item;
+
+      if (!this.hasInteracted) {
+        continue;
+      }
 
       if (body.isSleeping() && !flowActive) {
         continue;
@@ -695,6 +689,7 @@ class ModelPhysics {
         position,
         flowActive,
       );
+
       const mass = body.mass();
       const drag = this.fluid.drag * item.dragFactor;
 
@@ -707,7 +702,7 @@ class ModelPhysics {
           y: (fluidVelocity.y - velocity.y) * drag * mass,
           z: (fluidVelocity.z - velocity.z) * drag * mass,
         },
-        false,
+        true,
       );
     }
   }
@@ -729,6 +724,10 @@ class ModelPhysics {
 
   clampBodySpeeds() {
     for (const { body } of this.bodies) {
+      if (body.isSleeping()) {
+        continue;
+      }
+
       const linearVelocity = body.linvel();
       const linearSpeed = Math.hypot(
         linearVelocity.x,
@@ -738,6 +737,7 @@ class ModelPhysics {
 
       if (linearSpeed > this.config.maxLinearSpeed) {
         const scale = this.config.maxLinearSpeed / linearSpeed;
+
         body.setLinvel(
           {
             x: linearVelocity.x * scale,
@@ -757,6 +757,7 @@ class ModelPhysics {
 
       if (angularSpeed > this.config.maxAngularSpeed) {
         const scale = this.config.maxAngularSpeed / angularSpeed;
+
         body.setAngvel(
           {
             x: angularVelocity.x * scale,
@@ -777,7 +778,12 @@ class ModelPhysics {
     );
 
     for (const item of this.bodies) {
+      if (item.body.isSleeping()) {
+        continue;
+      }
+
       const translation = item.body.translation();
+
       const safeScale = Math.max(
         0.05,
         1 -
@@ -808,6 +814,7 @@ class ModelPhysics {
       }
 
       this.boundaryOffset.multiplyScalar(1 / normalizedDistance);
+
       this.boundaryPosition
         .copy(this.boundary.center)
         .add(this.boundaryOffset)
@@ -825,6 +832,7 @@ class ModelPhysics {
         .normalize();
 
       const velocity = item.body.linvel();
+
       const outwardSpeed =
         velocity.x * this.boundaryNormal.x +
         velocity.y * this.boundaryNormal.y +
@@ -851,8 +859,18 @@ class ModelPhysics {
       const translation = body.translation();
       const rotation = body.rotation();
 
-      node.position.set(translation.x, translation.y, translation.z);
-      node.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+      node.position.set(
+        translation.x,
+        translation.y,
+        translation.z,
+      );
+
+      node.quaternion.set(
+        rotation.x,
+        rotation.y,
+        rotation.z,
+        rotation.w,
+      );
     }
   }
 
@@ -871,13 +889,15 @@ class ModelPhysics {
       this.accumulator >= this.config.fixedTimeStep &&
       substeps < this.config.maxSubSteps
     ) {
-      this.applyFluidForces(true);
-      this.clampBodySpeeds();
-      this.world.step();
-      this.enforceSphereBoundary();
-      this.clampBodySpeeds();
-      this.syncNodes();
-      this.updateFluidState();
+      if (this.hasInteracted) {
+        this.applyFluidForces();
+        this.clampBodySpeeds();
+        this.world.step();
+        this.enforceSphereBoundary();
+        this.clampBodySpeeds();
+        this.syncNodes();
+        this.updateFluidState();
+      }
 
       this.accumulator -= this.config.fixedTimeStep;
       substeps += 1;
@@ -891,10 +911,16 @@ class ModelPhysics {
   }
 }
 
-export async function createModelPhysics({ root, camera, canvas, config }) {
+export async function createModelPhysics({
+  root,
+  camera,
+  canvas,
+  config,
+}) {
   await initializeRapier();
 
   const sphereNode = root.getObjectByName("Sphere");
+
   if (!sphereNode?.isMesh) {
     throw new Error("В GLB не найден ограничивающий объект Sphere");
   }
