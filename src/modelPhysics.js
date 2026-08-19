@@ -7,31 +7,31 @@ const STATIC_BASE_NAME_PATTERN = /^static_base(?:_\d+)?$/;
 
 const MIN_POINTER_DELTA_TIME = 1 / 240;
 const MAX_POINTER_DELTA_TIME = 0.12;
-
 const GESTURE_THRESHOLD = 0.8;
 const GESTURE_RELEASE_THRESHOLD = 0.25;
 const MAX_GESTURE_VELOCITY = 5;
 const HORIZONTAL_DIRECTION_THRESHOLD = 0.12;
 
 const PRESETTLE_MIN_STEPS = 120;
-const PRESETTLE_MAX_STEPS = 480;
+const PRESETTLE_MAX_STEPS = 600;
 const PRESETTLE_STABLE_STEPS = 30;
 const PRESETTLE_LINEAR_SPEED = 0.01;
 const PRESETTLE_ANGULAR_SPEED = 0.05;
 
-const MIN_SHAKE_DURATION = 1.1;
-const MAX_SHAKE_DURATION = 1.35;
-const MIN_LIFT_ACCELERATION = 1.25;
-const MAX_LIFT_ACCELERATION = 1.7;
-const MIN_SWIRL_ACCELERATION = 0.025;
-const MAX_SWIRL_ACCELERATION = 0.05;
-const TURBULENCE_ACCELERATION = 0.035;
-const CENTERING_ACCELERATION = 0.12;
-const CENTERING_START_RADIUS = 0.58;
-const MIN_SPIN_TORQUE = 0.004;
-const MAX_SPIN_TORQUE = 0.009;
-
-const ACTIVE_GRAVITY = { x: 0, y: -0.4, z: 0 };
+const DEFAULT_FLUID = {
+  drag: 2.2,
+  flowDecay: 0.95,
+  minimumEnergy: 0.015,
+  upwardSpeedMin: 1.05,
+  upwardSpeedMax: 1.45,
+  swirlSpeedMin: 0.035,
+  swirlSpeedMax: 0.075,
+  turbulenceSpeed: 0.075,
+  returnFlowSpeed: 0.42,
+  inwardSpeed: 0.16,
+  wallStartRadius: 0.68,
+  topSlowdownStart: 0.58,
+};
 
 let rapierInitialization = null;
 
@@ -52,20 +52,6 @@ function hashName(name) {
   }
 
   return (hash >>> 0) / 4294967295;
-}
-
-function createDeterministicVector(seed, offset = 0) {
-  const vector = new THREE.Vector3(
-    Math.sin((seed + offset + 0.17) * 37.1),
-    Math.sin((seed + offset + 0.53) * 61.7),
-    Math.sin((seed + offset + 0.89) * 83.3),
-  );
-
-  if (vector.lengthSq() < Number.EPSILON) {
-    vector.set(1, 0, 0);
-  }
-
-  return vector.normalize();
 }
 
 function getGeometryBox(geometry) {
@@ -173,10 +159,10 @@ function createBallCollider(node, config) {
       Math.abs(node.scale.z),
     );
 
-  const radius = visualRadius * config.ballColliderScale;
-
   return {
-    descriptor: RAPIER.ColliderDesc.ball(radius),
+    descriptor: RAPIER.ColliderDesc.ball(
+      visualRadius * config.ballColliderScale,
+    ),
     center,
     boundaryRadius: center.length() + visualRadius,
     mass: config.ballMass,
@@ -198,21 +184,14 @@ function createBoundary(sphereNode) {
 }
 
 class ModelPhysics {
-  constructor({
-    root,
-    camera,
-    canvas,
-    config,
-    sphereNode,
-    movingNodes,
-    staticNodes,
-  }) {
+  constructor({ root, camera, canvas, config, sphereNode, movingNodes, staticNodes }) {
     this.root = root;
     this.camera = camera;
     this.canvas = canvas;
     this.config = config;
+    this.fluid = { ...DEFAULT_FLUID, ...(config.fluid ?? {}) };
 
-    this.world = new RAPIER.World(ACTIVE_GRAVITY);
+    this.world = new RAPIER.World(config.gravity);
     this.world.timestep = config.fixedTimeStep;
     this.world.maxCcdSubsteps = config.ccdSubsteps;
 
@@ -220,12 +199,11 @@ class ModelPhysics {
     this.bodies = [];
     this.accumulator = 0;
 
-    this.shakeActive = false;
-    this.shakeElapsed = 0;
-    this.shakeDuration = MAX_SHAKE_DURATION;
-    this.shakeStrength = 0;
-    this.shakeSerial = 0;
+    this.fluidEnergy = 0;
+    this.fluidAge = 0;
+    this.fluidStrength = 0;
     this.swirlDirection = 1;
+    this.flowSerial = 0;
 
     this.gestureArmed = true;
     this.activeTouchPointerId = null;
@@ -279,9 +257,7 @@ class ModelPhysics {
       );
     });
 
-    movingNodes.forEach((node) => {
-      this.createDynamicBody(node);
-    });
+    movingNodes.forEach((node) => this.createDynamicBody(node));
 
     this.preSettleBodies();
     this.syncNodes();
@@ -289,8 +265,7 @@ class ModelPhysics {
   }
 
   createDynamicBody(node) {
-    const isBall = BALL_NAME_PATTERN.test(node.name);
-    const colliderData = isBall
+    const colliderData = BALL_NAME_PATTERN.test(node.name)
       ? createBallCollider(node, this.config)
       : createClipCollider(node, this.config);
 
@@ -308,6 +283,12 @@ class ModelPhysics {
       .setCcdEnabled(true);
 
     const body = this.world.createRigidBody(bodyDescriptor);
+
+    if (typeof body.setAdditionalSolverIterations === "function") {
+      body.setAdditionalSolverIterations(
+        this.config.additionalSolverIterations ?? 4,
+      );
+    }
 
     colliderData.descriptor
       .setTranslation(
@@ -328,10 +309,20 @@ class ModelPhysics {
       body,
       seed,
       boundaryRadius: colliderData.boundaryRadius,
-      spinAxis: createDeterministicVector(seed, 0.73),
-      noisePhaseX: seed * Math.PI * 2,
-      noisePhaseZ: hashName(`${node.name}:noise-z`) * Math.PI * 2,
-      noiseFrequency: 1.35 + hashName(`${node.name}:noise-frequency`) * 1.2,
+      dragFactor: THREE.MathUtils.lerp(0.88, 1.12, seed),
+      turbulenceFactor: THREE.MathUtils.lerp(
+        0.75,
+        1.2,
+        hashName(`${node.name}:turbulence`),
+      ),
+      phaseX: seed * Math.PI * 2,
+      phaseY: hashName(`${node.name}:phase-y`) * Math.PI * 2,
+      phaseZ: hashName(`${node.name}:phase-z`) * Math.PI * 2,
+      frequency: THREE.MathUtils.lerp(
+        0.8,
+        1.35,
+        hashName(`${node.name}:frequency`),
+      ),
     });
   }
 
@@ -343,13 +334,11 @@ class ModelPhysics {
 
       const linearVelocity = body.linvel();
       const angularVelocity = body.angvel();
-
       const linearSpeed = Math.hypot(
         linearVelocity.x,
         linearVelocity.y,
         linearVelocity.z,
       );
-
       const angularSpeed = Math.hypot(
         angularVelocity.x,
         angularVelocity.y,
@@ -371,6 +360,8 @@ class ModelPhysics {
     let stableSteps = 0;
 
     for (let step = 0; step < PRESETTLE_MAX_STEPS; step += 1) {
+      this.applyFluidForces(false);
+      this.clampBodySpeeds();
       this.world.step();
       this.enforceSphereBoundary();
       this.clampBodySpeeds();
@@ -381,7 +372,6 @@ class ModelPhysics {
 
       if (this.areBodiesSettled()) {
         stableSteps += 1;
-
         if (stableSteps >= PRESETTLE_STABLE_STEPS) {
           break;
         }
@@ -507,12 +497,10 @@ class ModelPhysics {
 
     const rect = this.canvas.getBoundingClientRect();
     const safeDeltaTime = Math.max(deltaTime, MIN_POINTER_DELTA_TIME);
-
     const velocityX =
       (event.clientX - this.lastPointer.x) /
       Math.max(rect.width, 1) /
       safeDeltaTime;
-
     const velocityY =
       -(event.clientY - this.lastPointer.y) /
       Math.max(rect.height, 1) /
@@ -538,7 +526,6 @@ class ModelPhysics {
     );
 
     this.rememberPointer(event);
-
     this.applyPointerVelocity(
       this.smoothedPointerVelocity.x,
       this.smoothedPointerVelocity.y,
@@ -574,170 +561,169 @@ class ModelPhysics {
     );
 
     let direction = this.swirlDirection;
-
     if (Math.abs(velocityX) >= HORIZONTAL_DIRECTION_THRESHOLD) {
       direction = Math.sign(velocityX);
     } else {
       direction *= -1;
     }
 
-    this.startShake(strength, direction);
+    this.startFluidMotion(strength, direction);
   }
 
-  startShake(strength, direction) {
-    this.shakeActive = true;
-    this.shakeElapsed = 0;
-    this.shakeStrength = strength;
-    this.shakeSerial += 1;
+  startFluidMotion(strength, direction) {
+    this.fluidStrength = strength;
+    this.fluidEnergy = Math.max(
+      this.fluidEnergy * 0.55,
+      THREE.MathUtils.lerp(0.72, 1, strength),
+    );
+    this.fluidAge = 0;
+    this.flowSerial += 1;
     this.swirlDirection = direction || 1;
 
-    this.shakeDuration = THREE.MathUtils.lerp(
-      MAX_SHAKE_DURATION,
-      MIN_SHAKE_DURATION,
-      strength,
-    );
-
     for (const { body } of this.bodies) {
-      body.resetForces(false);
-      body.resetTorques(false);
       body.wakeUp();
     }
   }
 
-  applyShakeForces() {
-    this.shakeElapsed = Math.min(
-      this.shakeElapsed + this.config.fixedTimeStep,
-      this.shakeDuration,
-    );
+  getFluidVelocity(item, position, allowFlow) {
+    if (!allowFlow || this.fluidEnergy <= 0) {
+      return { x: 0, y: 0, z: 0 };
+    }
 
-    const progress = THREE.MathUtils.clamp(
-      this.shakeElapsed /
-        Math.max(this.shakeDuration, Number.EPSILON),
-      0,
+    const dx = position.x - this.physicsCenter.x;
+    const dy = position.y - this.physicsCenter.y;
+    const dz = position.z - this.physicsCenter.z;
+
+    const radiusX = Math.max(this.physicsRadii.x, Number.EPSILON);
+    const radiusY = Math.max(this.physicsRadii.y, Number.EPSILON);
+    const radiusZ = Math.max(this.physicsRadii.z, Number.EPSILON);
+
+    const normalizedX = dx / radiusX;
+    const normalizedY = dy / radiusY;
+    const normalizedZ = dz / radiusZ;
+    const normalizedRadius = Math.hypot(normalizedX, normalizedZ);
+    const radialLength = Math.hypot(dx, dz);
+
+    const wallFactor = THREE.MathUtils.smoothstep(
+      normalizedRadius,
+      this.fluid.wallStartRadius,
       1,
     );
 
-    const envelope = Math.sin(Math.PI * progress) ** 1.6;
+    const topFactor = THREE.MathUtils.smoothstep(
+      normalizedY,
+      this.fluid.topSlowdownStart,
+      1,
+    );
 
-    const liftAcceleration =
-      THREE.MathUtils.lerp(
-        MIN_LIFT_ACCELERATION,
-        MAX_LIFT_ACCELERATION,
-        this.shakeStrength,
-      ) * envelope;
+    const upwardBase = THREE.MathUtils.lerp(
+      this.fluid.upwardSpeedMin,
+      this.fluid.upwardSpeedMax,
+      this.fluidStrength,
+    );
 
-    const swirlAcceleration =
-      THREE.MathUtils.lerp(
-        MIN_SWIRL_ACCELERATION,
-        MAX_SWIRL_ACCELERATION,
-        this.shakeStrength,
-      ) * envelope;
+    const upwardFlow = upwardBase * (1 - 0.45 * wallFactor) * (1 - topFactor);
+    const returnFlow = this.fluid.returnFlowSpeed * wallFactor;
 
-    const spinTorque =
-      THREE.MathUtils.lerp(
-        MIN_SPIN_TORQUE,
-        MAX_SPIN_TORQUE,
-        this.shakeStrength,
-      ) * envelope;
+    let tangentX = 0;
+    let tangentZ = 0;
+    let inwardX = 0;
+    let inwardZ = 0;
+
+    if (radialLength > Number.EPSILON) {
+      tangentX = -dz / radialLength;
+      tangentZ = dx / radialLength;
+      inwardX = -dx / radialLength;
+      inwardZ = -dz / radialLength;
+    }
+
+    const swirlSpeed = THREE.MathUtils.lerp(
+      this.fluid.swirlSpeedMin,
+      this.fluid.swirlSpeedMax,
+      this.fluidStrength,
+    );
+
+    const time = this.fluidAge * item.frequency + this.flowSerial * 0.67;
+    const turbulence =
+      this.fluid.turbulenceSpeed * item.turbulenceFactor;
+
+    const turbulenceX =
+      Math.sin(time + item.phaseX + normalizedY * 2.1) * turbulence;
+    const turbulenceY =
+      Math.sin(time * 0.71 + item.phaseY + normalizedX * 1.7) *
+      turbulence *
+      0.28;
+    const turbulenceZ =
+      Math.cos(time * 0.89 + item.phaseZ + normalizedY * 1.9) * turbulence;
+
+    const energy = this.fluidEnergy;
+
+    return {
+      x:
+        (tangentX * swirlSpeed * this.swirlDirection +
+          inwardX * this.fluid.inwardSpeed * wallFactor +
+          turbulenceX) *
+        energy,
+      y: (upwardFlow - returnFlow + turbulenceY) * energy,
+      z:
+        (tangentZ * swirlSpeed * this.swirlDirection +
+          inwardZ * this.fluid.inwardSpeed * wallFactor +
+          turbulenceZ) *
+        energy,
+    };
+  }
+
+  applyFluidForces(allowFlow = true) {
+    const flowActive =
+      allowFlow && this.fluidEnergy > this.fluid.minimumEnergy;
 
     for (const item of this.bodies) {
       const { body } = item;
+
+      if (body.isSleeping() && !flowActive) {
+        continue;
+      }
+
+      if (flowActive && body.isSleeping()) {
+        body.wakeUp();
+      }
+
       const position = body.translation();
+      const velocity = body.linvel();
+      const fluidVelocity = this.getFluidVelocity(
+        item,
+        position,
+        flowActive,
+      );
       const mass = body.mass();
+      const drag = this.fluid.drag * item.dragFactor;
 
       body.resetForces(false);
       body.resetTorques(false);
-
-      const dx = position.x - this.physicsCenter.x;
-      const dz = position.z - this.physicsCenter.z;
-      const radialLength = Math.hypot(dx, dz);
-
-      let tangentX = 0;
-      let tangentZ = 0;
-
-      if (radialLength > Number.EPSILON) {
-        tangentX = -dz / radialLength;
-        tangentZ = dx / radialLength;
-      }
-
-      const noiseTime =
-        this.shakeElapsed * item.noiseFrequency +
-        this.shakeSerial * 0.73;
-
-      const noiseX =
-        Math.sin(noiseTime + item.noisePhaseX) *
-        TURBULENCE_ACCELERATION *
-        envelope;
-
-      const noiseZ =
-        Math.cos(noiseTime * 0.91 + item.noisePhaseZ) *
-        TURBULENCE_ACCELERATION *
-        envelope;
-
-      const normalizedX =
-        dx / Math.max(this.physicsRadii.x, Number.EPSILON);
-      const normalizedZ =
-        dz / Math.max(this.physicsRadii.z, Number.EPSILON);
-      const normalizedRadius = Math.hypot(normalizedX, normalizedZ);
-
-      let centeringX = 0;
-      let centeringZ = 0;
-
-      if (
-        normalizedRadius > CENTERING_START_RADIUS &&
-        radialLength > Number.EPSILON
-      ) {
-        const centeringStrength =
-          ((normalizedRadius - CENTERING_START_RADIUS) /
-            Math.max(1 - CENTERING_START_RADIUS, Number.EPSILON)) *
-          CENTERING_ACCELERATION *
-          envelope;
-
-        centeringX = (-dx / radialLength) * centeringStrength;
-        centeringZ = (-dz / radialLength) * centeringStrength;
-      }
-
-      const accelerationX =
-        tangentX * swirlAcceleration * this.swirlDirection +
-        noiseX +
-        centeringX;
-
-      const accelerationZ =
-        tangentZ * swirlAcceleration * this.swirlDirection +
-        noiseZ +
-        centeringZ;
 
       body.addForce(
         {
-          x: accelerationX * mass,
-          y: liftAcceleration * mass,
-          z: accelerationZ * mass,
+          x: (fluidVelocity.x - velocity.x) * drag * mass,
+          y: (fluidVelocity.y - velocity.y) * drag * mass,
+          z: (fluidVelocity.z - velocity.z) * drag * mass,
         },
-        true,
+        false,
       );
-
-      body.addTorque(
-        {
-          x: item.spinAxis.x * spinTorque * mass,
-          y: item.spinAxis.y * spinTorque * mass,
-          z: item.spinAxis.z * spinTorque * mass,
-        },
-        true,
-      );
-    }
-
-    if (progress >= 1) {
-      this.stopShake();
     }
   }
 
-  stopShake() {
-    this.shakeActive = false;
-    this.shakeElapsed = 0;
+  updateFluidState() {
+    if (this.fluidEnergy <= 0) {
+      return;
+    }
 
-    for (const { body } of this.bodies) {
-      body.resetForces(false);
-      body.resetTorques(false);
+    this.fluidAge += this.config.fixedTimeStep;
+    this.fluidEnergy *= Math.exp(
+      -this.fluid.flowDecay * this.config.fixedTimeStep,
+    );
+
+    if (this.fluidEnergy < this.fluid.minimumEnergy) {
+      this.fluidEnergy = 0;
     }
   }
 
@@ -752,7 +738,6 @@ class ModelPhysics {
 
       if (linearSpeed > this.config.maxLinearSpeed) {
         const scale = this.config.maxLinearSpeed / linearSpeed;
-
         body.setLinvel(
           {
             x: linearVelocity.x * scale,
@@ -772,7 +757,6 @@ class ModelPhysics {
 
       if (angularSpeed > this.config.maxAngularSpeed) {
         const scale = this.config.maxAngularSpeed / angularSpeed;
-
         body.setAngvel(
           {
             x: angularVelocity.x * scale,
@@ -794,7 +778,6 @@ class ModelPhysics {
 
     for (const item of this.bodies) {
       const translation = item.body.translation();
-
       const safeScale = Math.max(
         0.05,
         1 -
@@ -825,7 +808,6 @@ class ModelPhysics {
       }
 
       this.boundaryOffset.multiplyScalar(1 / normalizedDistance);
-
       this.boundaryPosition
         .copy(this.boundary.center)
         .add(this.boundaryOffset)
@@ -843,7 +825,6 @@ class ModelPhysics {
         .normalize();
 
       const velocity = item.body.linvel();
-
       const outwardSpeed =
         velocity.x * this.boundaryNormal.x +
         velocity.y * this.boundaryNormal.y +
@@ -870,18 +851,8 @@ class ModelPhysics {
       const translation = body.translation();
       const rotation = body.rotation();
 
-      node.position.set(
-        translation.x,
-        translation.y,
-        translation.z,
-      );
-
-      node.quaternion.set(
-        rotation.x,
-        rotation.y,
-        rotation.z,
-        rotation.w,
-      );
+      node.position.set(translation.x, translation.y, translation.z);
+      node.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
     }
   }
 
@@ -900,15 +871,13 @@ class ModelPhysics {
       this.accumulator >= this.config.fixedTimeStep &&
       substeps < this.config.maxSubSteps
     ) {
-      if (this.shakeActive) {
-        this.applyShakeForces();
-      }
-
+      this.applyFluidForces(true);
       this.clampBodySpeeds();
       this.world.step();
       this.enforceSphereBoundary();
       this.clampBodySpeeds();
       this.syncNodes();
+      this.updateFluidState();
 
       this.accumulator -= this.config.fixedTimeStep;
       substeps += 1;
@@ -922,16 +891,10 @@ class ModelPhysics {
   }
 }
 
-export async function createModelPhysics({
-  root,
-  camera,
-  canvas,
-  config,
-}) {
+export async function createModelPhysics({ root, camera, canvas, config }) {
   await initializeRapier();
 
   const sphereNode = root.getObjectByName("Sphere");
-
   if (!sphereNode?.isMesh) {
     throw new Error("В GLB не найден ограничивающий объект Sphere");
   }
