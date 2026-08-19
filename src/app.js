@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { appConfig } from "./config.js";
 import { createModelPhysics } from "./modelPhysics.js";
@@ -317,8 +318,19 @@ function animate() {
 }
 
 async function loadScene() {
+  const dracoLoader = new DRACOLoader(loadingManager);
+  dracoLoader.setDecoderPath(appConfig.model.dracoDecoderPath);
+  dracoLoader.preload();
+
   const loader = new GLTFLoader(loadingManager);
-  const gltf = await loader.loadAsync(appConfig.model.url);
+  loader.setDRACOLoader(dracoLoader);
+
+  let gltf;
+  try {
+    gltf = await loader.loadAsync(appConfig.model.url);
+  } finally {
+    dracoLoader.dispose();
+  }
 
   configureModelMaterials(gltf.scene);
   applyModelConfig(gltf.scene);
