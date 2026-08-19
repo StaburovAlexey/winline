@@ -13,23 +13,20 @@ const GESTURE_RELEASE_THRESHOLD = 0.25;
 const MAX_GESTURE_VELOCITY = 5;
 const HORIZONTAL_DIRECTION_THRESHOLD = 0.12;
 
-const MIN_LAUNCH_DURATION = 1.05;
-const MAX_LAUNCH_DURATION = 1.35;
-const MIN_TARGET_HEIGHT = 0.74;
-const MAX_TARGET_HEIGHT = 0.84;
-const MAX_TARGET_DISK_RADIUS = 0.62;
-const MIN_TARGET_SEPARATION_FACTOR = 0.82;
-const TARGET_PLACEMENT_ATTEMPTS = 14;
+const PRESETTLE_MIN_STEPS = 60;
+const PRESETTLE_MAX_STEPS = 240;
 
-const MIN_SWIRL_FACTOR = 0.018;
-const MAX_SWIRL_FACTOR = 0.04;
-const MIN_LAUNCH_SPIN = 0.12;
-const MAX_LAUNCH_SPIN = 0.28;
-
-const RELEASE_INFERRED_VELOCITY_FACTOR = 0.12;
-const RELEASE_DRIFT_FACTOR = 0.035;
-const MIN_RELEASE_SPIN = 0.22;
-const MAX_RELEASE_SPIN = 0.42;
+const MIN_SHAKE_DURATION = 1.1;
+const MAX_SHAKE_DURATION = 1.35;
+const MIN_LIFT_ACCELERATION = 1.25;
+const MAX_LIFT_ACCELERATION = 1.7;
+const MIN_SWIRL_ACCELERATION = 0.025;
+const MAX_SWIRL_ACCELERATION = 0.05;
+const TURBULENCE_ACCELERATION = 0.035;
+const CENTERING_ACCELERATION = 0.12;
+const CENTERING_START_RADIUS = 0.58;
+const MIN_SPIN_TORQUE = 0.004;
+const MAX_SPIN_TORQUE = 0.009;
 
 const ACTIVE_GRAVITY = { x: 0, y: -0.4, z: 0 };
 
@@ -66,17 +63,6 @@ function createDeterministicVector(seed, offset = 0) {
   }
 
   return vector.normalize();
-}
-
-function smootherStep(progress) {
-  const clamped = THREE.MathUtils.clamp(progress, 0, 1);
-
-  return (
-    clamped *
-    clamped *
-    clamped *
-    (clamped * (clamped * 6 - 15) + 10)
-  );
 }
 
 function getGeometryBox(geometry) {
@@ -162,13 +148,12 @@ function createClipCollider(node, config) {
 
   const halfHeight = visualHalfHeight * config.clipColliderScale;
   const radius = visualRadius * config.clipColliderScale;
-  const visualExtent = Math.hypot(visualRadius, visualHalfHeight);
 
   return {
     descriptor: RAPIER.ColliderDesc.cylinder(halfHeight, radius),
     center,
-    boundaryRadius: center.length() + visualExtent,
-    launchClearance: visualExtent,
+    boundaryRadius:
+      center.length() + Math.hypot(visualRadius, visualHalfHeight),
     mass: config.clipMass,
   };
 }
@@ -191,7 +176,6 @@ function createBallCollider(node, config) {
     descriptor: RAPIER.ColliderDesc.ball(radius),
     center,
     boundaryRadius: center.length() + visualRadius,
-    launchClearance: visualRadius,
     mass: config.ballMass,
   };
 }
@@ -231,13 +215,13 @@ class ModelPhysics {
 
     this.boundary = createBoundary(sphereNode);
     this.bodies = [];
-
-    this.phase = "idle";
     this.accumulator = 0;
-    this.launchElapsed = 0;
-    this.launchDuration = MAX_LAUNCH_DURATION;
-    this.launchStrength = 0;
-    this.launchSerial = 0;
+
+    this.shakeActive = false;
+    this.shakeElapsed = 0;
+    this.shakeDuration = MAX_SHAKE_DURATION;
+    this.shakeStrength = 0;
+    this.shakeSerial = 0;
     this.swirlDirection = 1;
 
     this.gestureArmed = true;
@@ -255,21 +239,17 @@ class ModelPhysics {
     this.matrixPosition = new THREE.Vector3();
     this.matrixQuaternion = new THREE.Quaternion();
 
-    this.launchPosition = new THREE.Vector3();
-    this.launchRotation = new THREE.Quaternion();
-    this.launchRotationDelta = new THREE.Quaternion();
-
     this.boundary.matrix.decompose(
       this.matrixPosition,
       this.matrixQuaternion,
       this.matrixScale,
     );
 
-    this.launchCenter = this.boundary.center
+    this.physicsCenter = this.boundary.center
       .clone()
       .applyMatrix4(this.boundary.matrix);
 
-    this.launchRadii = this.boundary.radii.clone().multiply(
+    this.physicsRadii = this.boundary.radii.clone().multiply(
       new THREE.Vector3(
         Math.abs(this.matrixScale.x),
         Math.abs(this.matrixScale.y),
@@ -296,20 +276,22 @@ class ModelPhysics {
       );
     });
 
-    movingNodes.forEach((node, index) => {
-      this.createDynamicBody(node, index);
+    movingNodes.forEach((node) => {
+      this.createDynamicBody(node);
     });
 
+    this.preSettleBodies();
+    this.syncNodes();
     this.bindPointerEvents();
   }
 
-  createDynamicBody(node, index) {
+  createDynamicBody(node) {
     const isBall = BALL_NAME_PATTERN.test(node.name);
     const colliderData = isBall
       ? createBallCollider(node, this.config)
       : createClipCollider(node, this.config);
 
-    const bodyDescriptor = RAPIER.RigidBodyDesc.fixed()
+    const bodyDescriptor = RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(node.position.x, node.position.y, node.position.z)
       .setRotation({
         x: node.quaternion.x,
@@ -319,7 +301,7 @@ class ModelPhysics {
       })
       .setLinearDamping(this.config.linearDamping)
       .setAngularDamping(this.config.angularDamping)
-      .setCanSleep(false)
+      .setCanSleep(true)
       .setCcdEnabled(true);
 
     const body = this.world.createRigidBody(bodyDescriptor);
@@ -341,14 +323,36 @@ class ModelPhysics {
     this.bodies.push({
       node,
       body,
-      index,
       seed,
       boundaryRadius: colliderData.boundaryRadius,
-      launchClearance: colliderData.launchClearance,
       spinAxis: createDeterministicVector(seed, 0.73),
-      releaseDirection: createDeterministicVector(seed, 1.17),
-      launch: null,
+      noisePhaseX: seed * Math.PI * 2,
+      noisePhaseZ: hashName(`${node.name}:noise-z`) * Math.PI * 2,
+      noiseFrequency: 1.35 + hashName(`${node.name}:noise-frequency`) * 1.2,
     });
+  }
+
+  preSettleBodies() {
+    for (let step = 0; step < PRESETTLE_MAX_STEPS; step += 1) {
+      this.world.step();
+      this.enforceSphereBoundary();
+      this.clampBodySpeeds();
+
+      if (
+        step >= PRESETTLE_MIN_STEPS &&
+        this.bodies.every(({ body }) => body.isSleeping())
+      ) {
+        break;
+      }
+    }
+
+    for (const { body } of this.bodies) {
+      body.resetForces(false);
+      body.resetTorques(false);
+      body.setLinvel({ x: 0, y: 0, z: 0 }, false);
+      body.setAngvel({ x: 0, y: 0, z: 0 }, false);
+      body.sleep();
+    }
   }
 
   bindPointerEvents() {
@@ -509,11 +513,7 @@ class ModelPhysics {
       return;
     }
 
-    if (
-      this.phase === "launch" ||
-      !this.gestureArmed ||
-      gestureSpeed < GESTURE_THRESHOLD
-    ) {
+    if (!this.gestureArmed || gestureSpeed < GESTURE_THRESHOLD) {
       return;
     }
 
@@ -540,355 +540,164 @@ class ModelPhysics {
       direction *= -1;
     }
 
-    this.startLaunch(strength, direction);
+    this.startShake(strength, direction);
   }
 
-  startLaunch(strength, direction) {
-    this.phase = "launch";
-    this.accumulator = 0;
-    this.launchElapsed = 0;
-    this.launchStrength = strength;
-    this.launchSerial += 1;
+  startShake(strength, direction) {
+    this.shakeActive = true;
+    this.shakeElapsed = 0;
+    this.shakeStrength = strength;
+    this.shakeSerial += 1;
     this.swirlDirection = direction || 1;
 
-    this.launchDuration = THREE.MathUtils.lerp(
-      MAX_LAUNCH_DURATION,
-      MIN_LAUNCH_DURATION,
+    this.shakeDuration = THREE.MathUtils.lerp(
+      MAX_SHAKE_DURATION,
+      MIN_SHAKE_DURATION,
       strength,
     );
 
-    const reservedTargets = [];
-
-    for (const item of this.bodies) {
-      const { body } = item;
-      const translation = body.translation();
-      const rotation = body.rotation();
-
-      const startPosition = new THREE.Vector3(
-        translation.x,
-        translation.y,
-        translation.z,
-      );
-
-      const startQuaternion = new THREE.Quaternion(
-        rotation.x,
-        rotation.y,
-        rotation.z,
-        rotation.w,
-      );
-
-      body.setBodyType(
-        RAPIER.RigidBodyType.KinematicPositionBased,
-        true,
-      );
-
-      const targetPosition = this.chooseLaunchTarget(
-        item,
-        startPosition,
-        reservedTargets,
-      );
-
-      reservedTargets.push({
-        position: targetPosition.clone(),
-        clearance: item.launchClearance,
-      });
-
-      const centerOffset = startPosition.clone().sub(this.launchCenter);
-
-      let tangent = new THREE.Vector3(
-        -centerOffset.z,
-        0,
-        centerOffset.x,
-      );
-
-      if (tangent.lengthSq() < 1e-8) {
-        const fallbackAngle =
-          hashName(`${item.node.name}:${this.launchSerial}:tangent`) *
-          Math.PI *
-          2;
-
-        tangent.set(
-          Math.cos(fallbackAngle),
-          0,
-          Math.sin(fallbackAngle),
-        );
-      } else {
-        tangent.normalize();
-      }
-
-      const swirlScale = Math.min(
-        this.launchRadii.x,
-        this.launchRadii.z,
-      );
-
-      const swirlAmplitude =
-        swirlScale *
-        THREE.MathUtils.lerp(
-          MIN_SWIRL_FACTOR,
-          MAX_SWIRL_FACTOR,
-          hashName(`${item.node.name}:${this.launchSerial}:swirl`),
-        ) *
-        (0.8 + strength * 0.2);
-
-      const totalSpin =
-        this.swirlDirection *
-        THREE.MathUtils.lerp(
-          MIN_LAUNCH_SPIN,
-          MAX_LAUNCH_SPIN,
-          hashName(`${item.node.name}:${this.launchSerial}:spin`),
-        );
-
-      item.launch = {
-        startPosition,
-        startQuaternion,
-        targetPosition,
-        tangent,
-        swirlAmplitude,
-        totalSpin,
-      };
+    for (const { body } of this.bodies) {
+      body.resetForces(false);
+      body.resetTorques(false);
+      body.wakeUp();
     }
   }
 
-  chooseLaunchTarget(item, startPosition, reservedTargets) {
-    let bestTarget = null;
-    let bestDistance = -Infinity;
-
-    for (
-      let attempt = 0;
-      attempt < TARGET_PLACEMENT_ATTEMPTS;
-      attempt += 1
-    ) {
-      const baseKey = `${item.node.name}:${this.launchSerial}:${attempt}`;
-
-      const heightSeed = hashName(`${baseKey}:height`);
-      const angleSeed = hashName(`${baseKey}:angle`);
-      const radiusSeed = hashName(`${baseKey}:radius`);
-
-      const heightFactor = THREE.MathUtils.lerp(
-        MIN_TARGET_HEIGHT,
-        MAX_TARGET_HEIGHT,
-        heightSeed,
-      );
-
-      const maximumTargetY =
-        this.launchCenter.y +
-        this.launchRadii.y -
-        item.launchClearance;
-
-      const minimumLift =
-        this.launchRadii.y *
-        THREE.MathUtils.lerp(0.28, 0.36, this.launchStrength);
-
-      const desiredTargetY =
-        this.launchCenter.y + this.launchRadii.y * heightFactor;
-
-      const targetY = Math.min(
-        Math.max(desiredTargetY, startPosition.y + minimumLift),
-        maximumTargetY,
-      );
-
-      const normalizedY = THREE.MathUtils.clamp(
-        (targetY - this.launchCenter.y) /
-          Math.max(this.launchRadii.y, Number.EPSILON),
-        -0.98,
-        0.98,
-      );
-
-      const crossSectionScale = Math.sqrt(
-        Math.max(0.04, 1 - normalizedY * normalizedY),
-      );
-
-      const safeRadiusX = Math.max(
-        0,
-        this.launchRadii.x * crossSectionScale - item.launchClearance,
-      );
-
-      const safeRadiusZ = Math.max(
-        0,
-        this.launchRadii.z * crossSectionScale - item.launchClearance,
-      );
-
-      const diskRadius = Math.sqrt(radiusSeed) * MAX_TARGET_DISK_RADIUS;
-
-      const angle =
-        angleSeed * Math.PI * 2 + item.index * 2.399963229728653;
-
-      const candidate = new THREE.Vector3(
-        this.launchCenter.x + Math.cos(angle) * safeRadiusX * diskRadius,
-        targetY,
-        this.launchCenter.z + Math.sin(angle) * safeRadiusZ * diskRadius,
-      );
-
-      let minimumDistance = Infinity;
-      let valid = true;
-
-      for (const reserved of reservedTargets) {
-        const distance = candidate.distanceTo(reserved.position);
-
-        const requiredDistance =
-          (item.launchClearance + reserved.clearance) *
-          MIN_TARGET_SEPARATION_FACTOR;
-
-        minimumDistance = Math.min(
-          minimumDistance,
-          distance - requiredDistance,
-        );
-
-        if (distance < requiredDistance) {
-          valid = false;
-        }
-      }
-
-      if (reservedTargets.length === 0) {
-        minimumDistance = Infinity;
-      }
-
-      if (valid) {
-        return candidate;
-      }
-
-      if (minimumDistance > bestDistance) {
-        bestDistance = minimumDistance;
-        bestTarget = candidate;
-      }
-    }
-
-    return bestTarget ?? startPosition.clone();
-  }
-
-  updateLaunchStep() {
-    this.launchElapsed = Math.min(
-      this.launchElapsed + this.config.fixedTimeStep,
-      this.launchDuration,
+  applyShakeForces() {
+    this.shakeElapsed = Math.min(
+      this.shakeElapsed + this.config.fixedTimeStep,
+      this.shakeDuration,
     );
 
     const progress = THREE.MathUtils.clamp(
-      this.launchElapsed /
-        Math.max(this.launchDuration, Number.EPSILON),
+      this.shakeElapsed /
+        Math.max(this.shakeDuration, Number.EPSILON),
       0,
       1,
     );
 
-    const easedProgress = smootherStep(progress);
-    const swirlEnvelope = Math.sin(Math.PI * progress) ** 2;
+    const envelope = Math.sin(Math.PI * progress) ** 1.6;
+
+    const liftAcceleration =
+      THREE.MathUtils.lerp(
+        MIN_LIFT_ACCELERATION,
+        MAX_LIFT_ACCELERATION,
+        this.shakeStrength,
+      ) * envelope;
+
+    const swirlAcceleration =
+      THREE.MathUtils.lerp(
+        MIN_SWIRL_ACCELERATION,
+        MAX_SWIRL_ACCELERATION,
+        this.shakeStrength,
+      ) * envelope;
+
+    const spinTorque =
+      THREE.MathUtils.lerp(
+        MIN_SPIN_TORQUE,
+        MAX_SPIN_TORQUE,
+        this.shakeStrength,
+      ) * envelope;
 
     for (const item of this.bodies) {
-      const launch = item.launch;
-
-      if (!launch) {
-        continue;
-      }
-
-      this.launchPosition
-        .copy(launch.startPosition)
-        .lerp(launch.targetPosition, easedProgress)
-        .addScaledVector(
-          launch.tangent,
-          launch.swirlAmplitude * swirlEnvelope * this.swirlDirection,
-        );
-
-      this.launchRotationDelta.setFromAxisAngle(
-        item.spinAxis,
-        launch.totalSpin * easedProgress,
-      );
-
-      this.launchRotation
-        .copy(launch.startQuaternion)
-        .multiply(this.launchRotationDelta);
-
-      item.body.setNextKinematicTranslation({
-        x: this.launchPosition.x,
-        y: this.launchPosition.y,
-        z: this.launchPosition.z,
-      });
-
-      item.body.setNextKinematicRotation({
-        x: this.launchRotation.x,
-        y: this.launchRotation.y,
-        z: this.launchRotation.z,
-        w: this.launchRotation.w,
-      });
-    }
-
-    this.world.step();
-    this.syncNodes();
-
-    if (progress >= 1) {
-      this.releaseToPhysics();
-      return true;
-    }
-
-    return false;
-  }
-
-  releaseToPhysics() {
-    for (const item of this.bodies) {
-      const { body, launch } = item;
-
-      if (!launch) {
-        continue;
-      }
-
-      const inferredVelocity = body.linvel();
-
-      const releaseDirection = item.releaseDirection.clone().setY(0);
-
-      if (releaseDirection.lengthSq() < 1e-8) {
-        releaseDirection.set(1, 0, 0);
-      } else {
-        releaseDirection.normalize();
-      }
-
-      const driftSpeed =
-        this.config.maxLinearSpeed *
-        RELEASE_DRIFT_FACTOR *
-        THREE.MathUtils.lerp(
-          0.7,
-          1.15,
-          hashName(`${item.node.name}:${this.launchSerial}:drift`),
-        );
-
-      const releaseVelocity = new THREE.Vector3(
-        inferredVelocity.x * RELEASE_INFERRED_VELOCITY_FACTOR,
-        0,
-        inferredVelocity.z * RELEASE_INFERRED_VELOCITY_FACTOR,
-      ).addScaledVector(releaseDirection, driftSpeed);
-
-      const releaseSpin =
-        THREE.MathUtils.lerp(
-          MIN_RELEASE_SPIN,
-          MAX_RELEASE_SPIN,
-          hashName(`${item.node.name}:${this.launchSerial}:release-spin`),
-        ) * this.swirlDirection;
-
-      body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
-
-      body.setLinvel(
-        {
-          x: releaseVelocity.x,
-          y: releaseVelocity.y,
-          z: releaseVelocity.z,
-        },
-        true,
-      );
-
-      body.setAngvel(
-        {
-          x: item.spinAxis.x * releaseSpin,
-          y: item.spinAxis.y * releaseSpin,
-          z: item.spinAxis.z * releaseSpin,
-        },
-        true,
-      );
+      const { body } = item;
+      const position = body.translation();
+      const mass = body.mass();
 
       body.resetForces(false);
       body.resetTorques(false);
 
-      item.launch = null;
+      const dx = position.x - this.physicsCenter.x;
+      const dz = position.z - this.physicsCenter.z;
+      const radialLength = Math.hypot(dx, dz);
+
+      let tangentX = 0;
+      let tangentZ = 0;
+
+      if (radialLength > Number.EPSILON) {
+        tangentX = -dz / radialLength;
+        tangentZ = dx / radialLength;
+      }
+
+      const noiseTime =
+        this.shakeElapsed * item.noiseFrequency +
+        this.shakeSerial * 0.73;
+
+      const noiseX =
+        Math.sin(noiseTime + item.noisePhaseX) *
+        TURBULENCE_ACCELERATION *
+        envelope;
+
+      const noiseZ =
+        Math.cos(noiseTime * 0.91 + item.noisePhaseZ) *
+        TURBULENCE_ACCELERATION *
+        envelope;
+
+      const normalizedX =
+        dx / Math.max(this.physicsRadii.x, Number.EPSILON);
+      const normalizedZ =
+        dz / Math.max(this.physicsRadii.z, Number.EPSILON);
+      const normalizedRadius = Math.hypot(normalizedX, normalizedZ);
+
+      let centeringX = 0;
+      let centeringZ = 0;
+
+      if (
+        normalizedRadius > CENTERING_START_RADIUS &&
+        radialLength > Number.EPSILON
+      ) {
+        const centeringStrength =
+          ((normalizedRadius - CENTERING_START_RADIUS) /
+            Math.max(1 - CENTERING_START_RADIUS, Number.EPSILON)) *
+          CENTERING_ACCELERATION *
+          envelope;
+
+        centeringX = (-dx / radialLength) * centeringStrength;
+        centeringZ = (-dz / radialLength) * centeringStrength;
+      }
+
+      const accelerationX =
+        tangentX * swirlAcceleration * this.swirlDirection +
+        noiseX +
+        centeringX;
+
+      const accelerationZ =
+        tangentZ * swirlAcceleration * this.swirlDirection +
+        noiseZ +
+        centeringZ;
+
+      body.addForce(
+        {
+          x: accelerationX * mass,
+          y: liftAcceleration * mass,
+          z: accelerationZ * mass,
+        },
+        true,
+      );
+
+      body.addTorque(
+        {
+          x: item.spinAxis.x * spinTorque * mass,
+          y: item.spinAxis.y * spinTorque * mass,
+          z: item.spinAxis.z * spinTorque * mass,
+        },
+        true,
+      );
     }
 
-    this.phase = "physics";
-    this.accumulator = 0;
+    if (progress >= 1) {
+      this.stopShake();
+    }
+  }
+
+  stopShake() {
+    this.shakeActive = false;
+    this.shakeElapsed = 0;
+
+    for (const { body } of this.bodies) {
+      body.resetForces(false);
+      body.resetTorques(false);
+    }
   }
 
   clampBodySpeeds() {
@@ -1036,10 +845,6 @@ class ModelPhysics {
   }
 
   update(deltaTime) {
-    if (this.phase === "idle") {
-      return;
-    }
-
     const maximumAccumulatedTime =
       this.config.fixedTimeStep * this.config.maxSubSteps;
 
@@ -1054,18 +859,8 @@ class ModelPhysics {
       this.accumulator >= this.config.fixedTimeStep &&
       substeps < this.config.maxSubSteps
     ) {
-      if (this.phase === "launch") {
-        const released = this.updateLaunchStep();
-
-        this.accumulator -= this.config.fixedTimeStep;
-        substeps += 1;
-
-        if (released) {
-          this.accumulator = 0;
-          break;
-        }
-
-        continue;
+      if (this.shakeActive) {
+        this.applyShakeForces();
       }
 
       this.clampBodySpeeds();
