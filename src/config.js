@@ -68,7 +68,7 @@ export const appConfig = {
     clipMass: 0.3,
     ballMass: 1,
     friction: 0.25,
-    restitution: 1,
+    restitution: 0.2,
     linearDamping: 0.1,
     angularDamping: 0.55,
     pointerVelocityGain: .1,
