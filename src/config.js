@@ -1,6 +1,6 @@
 export const appConfig = {
   model: {
-    url: "/assets/winline2.glb",
+    url: `${import.meta.env.BASE_URL}assets/winline2.glb`,
     normalize: true,
     scale: 1,
     position: { x: 0, y: 0, z: 0 },

@@ -5,6 +5,11 @@ import { appConfig } from "./config.js";
 import { createModelPhysics } from "./modelPhysics.js";
 import "./style.css";
 
+document.body.style.setProperty(
+  "--background-image",
+  `url("${import.meta.env.BASE_URL}assets/background.png")`,
+);
+
 const sceneElement = document.querySelector("#scene");
 const statusElement = document.querySelector("#status");
 
