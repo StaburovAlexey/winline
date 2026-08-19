@@ -13,8 +13,11 @@ const GESTURE_RELEASE_THRESHOLD = 0.25;
 const MAX_GESTURE_VELOCITY = 5;
 const HORIZONTAL_DIRECTION_THRESHOLD = 0.12;
 
-const PRESETTLE_MIN_STEPS = 60;
-const PRESETTLE_MAX_STEPS = 240;
+const PRESETTLE_MIN_STEPS = 120;
+const PRESETTLE_MAX_STEPS = 480;
+const PRESETTLE_STABLE_STEPS = 30;
+const PRESETTLE_LINEAR_SPEED = 0.01;
+const PRESETTLE_ANGULAR_SPEED = 0.05;
 
 const MIN_SHAKE_DURATION = 1.1;
 const MAX_SHAKE_DURATION = 1.35;
@@ -332,26 +335,64 @@ class ModelPhysics {
     });
   }
 
+  areBodiesSettled() {
+    for (const { body } of this.bodies) {
+      if (body.isSleeping()) {
+        continue;
+      }
+
+      const linearVelocity = body.linvel();
+      const angularVelocity = body.angvel();
+
+      const linearSpeed = Math.hypot(
+        linearVelocity.x,
+        linearVelocity.y,
+        linearVelocity.z,
+      );
+
+      const angularSpeed = Math.hypot(
+        angularVelocity.x,
+        angularVelocity.y,
+        angularVelocity.z,
+      );
+
+      if (
+        linearSpeed > PRESETTLE_LINEAR_SPEED ||
+        angularSpeed > PRESETTLE_ANGULAR_SPEED
+      ) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   preSettleBodies() {
+    let stableSteps = 0;
+
     for (let step = 0; step < PRESETTLE_MAX_STEPS; step += 1) {
       this.world.step();
       this.enforceSphereBoundary();
       this.clampBodySpeeds();
 
-      if (
-        step >= PRESETTLE_MIN_STEPS &&
-        this.bodies.every(({ body }) => body.isSleeping())
-      ) {
-        break;
+      if (step < PRESETTLE_MIN_STEPS) {
+        continue;
+      }
+
+      if (this.areBodiesSettled()) {
+        stableSteps += 1;
+
+        if (stableSteps >= PRESETTLE_STABLE_STEPS) {
+          break;
+        }
+      } else {
+        stableSteps = 0;
       }
     }
 
     for (const { body } of this.bodies) {
       body.resetForces(false);
       body.resetTorques(false);
-      body.setLinvel({ x: 0, y: 0, z: 0 }, false);
-      body.setAngvel({ x: 0, y: 0, z: 0 }, false);
-      body.sleep();
     }
   }
 
