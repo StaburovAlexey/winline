@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import Stats from "stats.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -38,6 +39,14 @@ renderer.setPixelRatio(
 );
 sceneElement.append(renderer.domElement);
 
+const stats = appConfig.renderer.showStats ? new Stats() : null;
+if (stats) {
+  stats.showPanel(0);
+  stats.dom.style.position = "fixed";
+  stats.dom.style.zIndex = "10";
+  document.body.append(stats.dom);
+}
+
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enabled = appConfig.controls.enabled;
 controls.enableDamping = appConfig.controls.enableDamping;
@@ -52,6 +61,8 @@ let model = null;
 let modelPhysics = null;
 let failedAssetUrl = null;
 const clock = new THREE.Clock();
+const frameInterval = 1000 / Math.max(appConfig.renderer.maxFps, 1);
+let lastFrameTime = 0;
 
 function setStatus(message, state = "loading") {
   statusElement.textContent = message;
@@ -310,11 +321,18 @@ function resize() {
   updateCamera(width);
 }
 
-function animate() {
-  requestAnimationFrame(animate);
+function animate(time) {
+  const elapsed = time - lastFrameTime;
+  if (elapsed < frameInterval) {
+    return;
+  }
+
+  lastFrameTime = time - (elapsed % frameInterval);
+  stats?.begin();
   modelPhysics?.update(clock.getDelta());
   controls.update();
   renderer.render(scene, camera);
+  stats?.end();
 }
 
 async function loadScene() {
@@ -332,6 +350,13 @@ async function loadScene() {
     dracoLoader.dispose();
   }
 
+  const sphereCollider = gltf.scene.getObjectByName(
+    appConfig.physics.sphereColliderName,
+  );
+  if (sphereCollider) {
+    sphereCollider.visible = false;
+  }
+
   configureModelMaterials(gltf.scene);
   applyModelConfig(gltf.scene);
   scene.add(gltf.scene);
@@ -344,7 +369,6 @@ async function loadScene() {
     try {
       modelPhysics = await createModelPhysics({
         root: model,
-        camera,
         canvas: renderer.domElement,
         config: appConfig.physics,
       });
@@ -364,9 +388,12 @@ async function loadScene() {
 }
 
 window.addEventListener("resize", resize, { passive: true });
-window.addEventListener("pagehide", () => modelPhysics?.dispose(), { once: true });
+window.addEventListener("pagehide", () => {
+  renderer.setAnimationLoop(null);
+  modelPhysics?.dispose();
+}, { once: true });
 resize();
-animate();
+renderer.setAnimationLoop(animate);
 
 loadScene().catch((error) => {
   console.error("Не удалось загрузить Winline GLB", error);
