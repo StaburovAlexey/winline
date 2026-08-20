@@ -50,9 +50,26 @@ export const appConfig = {
     maxDistance: Infinity,
   },
 
+  parallax: {
+    enabled: true,
+    smoothing: 5,
+    deadZone: 0.03,
+    desktop: {
+      cameraX: 0.035,
+      cameraY: 0.025,
+      backgroundX: 14,
+      backgroundY: 10,
+    },
+    mobile: {
+      tiltRangeDegrees: 18,
+      cameraX: 0.03,
+      cameraY: 0.02,
+      backgroundX: 10,
+      backgroundY: 7,
+    },
+  },
+
   materials: {
-    useBakedEmission: true,
-    emissiveIntensity: 1,
     transparentMeshNames: ["Sphere"],
     transparentGeometryNames: ["Sphere.020"],
   },
@@ -114,8 +131,9 @@ export const appConfig = {
   },
 
   renderer: {
+    antialias: true,
     maxPixelRatio: 2,
-    maxFps: 30,
+    maxFps: 60,
     showStats: true,
   },
 };

@@ -22,18 +22,35 @@ body {
   --background-focus-x: 50%;
   --background-focus-y: 50%;
   --background-size: cover;
+  --background-parallax-x: 0px;
+  --background-parallax-y: 0px;
 
   min-height: 100dvh;
   overflow: hidden;
   background-color: #080b16;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: -24px;
+  z-index: 0;
+  pointer-events: none;
   background-image: var(--background-image);
   background-position: var(--background-focus-x) var(--background-focus-y);
   background-repeat: no-repeat;
   background-size: var(--background-size);
+  transform: translate3d(
+    var(--background-parallax-x),
+    var(--background-parallax-y),
+    0
+  );
+  will-change: transform;
 }
 
 #app {
   position: relative;
+  z-index: 1;
   min-height: 100dvh;
   isolation: isolate;
 }
@@ -97,6 +114,11 @@ body {
 } */
 
 @media (prefers-reduced-motion: reduce) {
+  body::before {
+    transform: none;
+    will-change: auto;
+  }
+
   #status {
     transition: none;
   }

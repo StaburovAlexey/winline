@@ -5,6 +5,7 @@ import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { appConfig } from "./config.js";
 import { createModelPhysics } from "./modelPhysics.js";
+import { createParallaxController } from "./parallax.js";
 import "./style.css";
 
 document.body.style.setProperty(
@@ -28,7 +29,7 @@ const camera = new THREE.PerspectiveCamera(
 );
 const renderer = new THREE.WebGLRenderer({
   alpha: true,
-  antialias: true,
+  antialias: appConfig.renderer.antialias,
   powerPreference: "high-performance",
 });
 
@@ -40,6 +41,12 @@ renderer.setPixelRatio(
 sceneElement.append(renderer.domElement);
 
 const stats = appConfig.renderer.showStats ? new Stats() : null;
+const physicsStatsPanel = stats?.addPanel(
+  new Stats.Panel("PHY", "#ff8", "#221"),
+);
+const renderStatsPanel = stats?.addPanel(
+  new Stats.Panel("REN", "#8ff", "#122"),
+);
 if (stats) {
   stats.showPanel(0);
   stats.dom.style.position = "fixed";
@@ -57,9 +64,18 @@ controls.enablePan = appConfig.controls.enablePan;
 controls.minDistance = appConfig.controls.minDistance;
 controls.maxDistance = appConfig.controls.maxDistance;
 
+const parallax = createParallaxController({
+  camera,
+  target: controls.target,
+  canvas: renderer.domElement,
+  backgroundElement: document.body,
+  config: appConfig.parallax,
+});
+
 let model = null;
 let modelPhysics = null;
 let failedAssetUrl = null;
+let renderInfoLogged = false;
 const clock = new THREE.Clock();
 const frameInterval = 1000 / Math.max(appConfig.renderer.maxFps, 1);
 let lastFrameTime = 0;
@@ -87,10 +103,6 @@ function matchesNode(node, meshNames, geometryNames) {
   return meshNames.includes(node.name) || geometryNames.includes(node.geometry?.name);
 }
 
-function getMaterials(node) {
-  return Array.isArray(node.material) ? node.material : [node.material];
-}
-
 function configureTexture(texture) {
   if (!texture || (!texture.image && !texture.source?.data)) {
     return;
@@ -101,9 +113,36 @@ function configureTexture(texture) {
   texture.needsUpdate = true;
 }
 
+function createBasicMaterial(source, keepTransparent) {
+  if (source.map) {
+    configureTexture(source.map);
+  }
+
+  const material = new THREE.MeshBasicMaterial({
+    alphaMap: source.alphaMap,
+    alphaTest: keepTransparent ? source.alphaTest : 0,
+    blending: source.blending,
+    color: source.map ? 0xffffff : source.color,
+    depthTest: true,
+    depthWrite: !keepTransparent,
+    fog: source.fog,
+    map: source.map,
+    opacity: keepTransparent ? source.opacity : 1,
+    premultipliedAlpha: source.premultipliedAlpha,
+    side: source.side,
+    toneMapped: source.toneMapped,
+    transparent: keepTransparent,
+    vertexColors: source.vertexColors,
+  });
+
+  material.name = source.name;
+  material.visible = source.visible;
+  return material;
+}
+
 function configureModelMaterials(root) {
-  const allMaterials = new Set();
-  const transparentMaterials = new Set();
+  const materialCache = new Map();
+  const originalMaterials = new Set();
 
   root.traverse((node) => {
     if (!node.isMesh) {
@@ -116,44 +155,36 @@ function configureModelMaterials(root) {
       appConfig.materials.transparentGeometryNames,
     );
 
-    for (const material of getMaterials(node)) {
-      if (!material) {
-        continue;
+    const sourceMaterials = Array.isArray(node.material)
+      ? node.material
+      : [node.material];
+    const basicMaterials = sourceMaterials.map((source) => {
+      if (!source) {
+        return source;
       }
 
-      allMaterials.add(material);
-      if (keepTransparent) {
-        transparentMaterials.add(material);
+      originalMaterials.add(source);
+      let variants = materialCache.get(source);
+      if (!variants) {
+        variants = new Map();
+        materialCache.set(source, variants);
       }
-    }
+
+      const variantKey = keepTransparent ? "transparent" : "opaque";
+      if (!variants.has(variantKey)) {
+        variants.set(variantKey, createBasicMaterial(source, keepTransparent));
+      }
+
+      return variants.get(variantKey);
+    });
+
+    node.material = Array.isArray(node.material)
+      ? basicMaterials
+      : basicMaterials[0];
   });
 
-  for (const material of allMaterials) {
-    const keepTransparent = transparentMaterials.has(material);
-
-    material.transparent = keepTransparent;
-    material.depthTest = true;
-    material.depthWrite = !keepTransparent;
-
-    if (!keepTransparent) {
-      material.opacity = 1;
-      material.alphaTest = 0;
-    }
-
-    if (appConfig.materials.useBakedEmission && "emissive" in material) {
-      if (material.map) {
-        configureTexture(material.map);
-        material.emissiveMap = material.map;
-        material.emissive.set(0xffffff);
-      } else {
-        material.emissiveMap = null;
-        material.emissive.copy(material.color);
-      }
-
-      material.emissiveIntensity = appConfig.materials.emissiveIntensity;
-    }
-
-    material.needsUpdate = true;
+  for (const material of originalMaterials) {
+    material.dispose();
   }
 }
 
@@ -310,6 +341,7 @@ function updateCamera(viewportWidth) {
 
   camera.updateProjectionMatrix();
   controls.update();
+  parallax.captureBasePose();
 }
 
 function resize() {
@@ -329,9 +361,26 @@ function animate(time) {
 
   lastFrameTime = time - (elapsed % frameInterval);
   stats?.begin();
-  modelPhysics?.update(clock.getDelta());
+  const deltaTime = clock.getDelta();
+  const physicsStartTime = performance.now();
+  modelPhysics?.update(deltaTime);
+  physicsStatsPanel?.update(performance.now() - physicsStartTime, 20);
   controls.update();
+  parallax.update(deltaTime);
+  const renderStartTime = performance.now();
   renderer.render(scene, camera);
+  renderStatsPanel?.update(performance.now() - renderStartTime, 20);
+
+  if (model && !renderInfoLogged) {
+    console.info("Three.js render info", {
+      calls: renderer.info.render.calls,
+      triangles: renderer.info.render.triangles,
+      geometries: renderer.info.memory.geometries,
+      textures: renderer.info.memory.textures,
+    });
+    renderInfoLogged = true;
+  }
+
   stats?.end();
 }
 
@@ -391,6 +440,7 @@ window.addEventListener("resize", resize, { passive: true });
 window.addEventListener("pagehide", () => {
   renderer.setAnimationLoop(null);
   modelPhysics?.dispose();
+  parallax.dispose();
 }, { once: true });
 resize();
 renderer.setAnimationLoop(animate);
