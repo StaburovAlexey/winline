@@ -15,8 +15,17 @@ document.body.style.setProperty(
 
 const sceneElement = document.querySelector("#scene");
 const statusElement = document.querySelector("#status");
+const motionPermissionButton = document.querySelector("#motion-permission");
+const motionPermissionStatusElement = document.querySelector(
+  "#motion-permission-status",
+);
 
-if (!(sceneElement instanceof HTMLElement) || !(statusElement instanceof HTMLElement)) {
+if (
+  !(sceneElement instanceof HTMLElement)
+  || !(statusElement instanceof HTMLElement)
+  || !(motionPermissionButton instanceof HTMLButtonElement)
+  || !(motionPermissionStatusElement instanceof HTMLElement)
+) {
   throw new Error("Scene root elements are missing");
 }
 
@@ -69,6 +78,8 @@ const parallax = createParallaxController({
   target: controls.target,
   canvas: renderer.domElement,
   backgroundElement: document.body,
+  permissionButton: motionPermissionButton,
+  permissionStatusElement: motionPermissionStatusElement,
   config: appConfig.parallax,
 });
 

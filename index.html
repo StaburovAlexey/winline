@@ -10,6 +10,15 @@
     <main id="app" aria-label="Winline 3D showcase">
       <div id="scene" aria-hidden="true"></div>
       <p id="status" role="status" aria-live="polite">Загрузка 3D-модели…</p>
+      <button id="motion-permission" type="button" hidden>
+        Гироскоп
+      </button>
+      <p
+        id="motion-permission-status"
+        role="status"
+        aria-live="polite"
+        hidden
+      ></p>
     </main>
     <script type="module" src="/src/app.js"></script>
   </body>

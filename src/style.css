@@ -97,6 +97,51 @@ body::before {
   color: #ffe5e5;
 }
 
+#motion-permission,
+#motion-permission-status {
+  position: fixed;
+  z-index: 4;
+  left: 50%;
+  width: min(calc(100% - 2rem), 22rem);
+  margin: 0;
+  transform: translateX(-50%);
+  font: inherit;
+  text-align: center;
+}
+
+#motion-permission[hidden],
+#motion-permission-status[hidden] {
+  display: none;
+}
+
+#motion-permission {
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  padding: 0.8rem 1rem;
+  border: 1px solid rgb(255 145 36 / 65%);
+  border-radius: 999px;
+  color: #fff;
+  background: rgb(19 14 18 / 88%);
+  box-shadow: 0 0.75rem 2rem rgb(0 0 0 / 35%);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#motion-permission:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+#motion-permission-status {
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.75rem;
+  color: #ffe5e5;
+  background: rgb(22 8 10 / 88%);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
 /* @media (max-width: 900px) {
   body {
     --background-focus-x: 50%;
@@ -114,7 +159,7 @@ body::before {
 } */
 
 @media (prefers-reduced-motion: reduce) {
-  body::before {
+  body:not(.is-motion-parallax-enabled)::before {
     transform: none;
     will-change: auto;
   }

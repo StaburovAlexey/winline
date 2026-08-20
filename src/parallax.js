@@ -36,6 +36,8 @@ export function createParallaxController({
   target,
   canvas,
   backgroundElement,
+  permissionButton,
+  permissionStatusElement,
   config,
 }) {
   const enabled = config?.enabled !== false;
@@ -56,6 +58,7 @@ export function createParallaxController({
   let orientationBaseline = null;
   let orientationListening = false;
   let permissionState = "idle";
+  let motionOptIn = false;
   let disposed = false;
 
   function isDesktopMode() {
@@ -63,7 +66,7 @@ export function createParallaxController({
   }
 
   function isActive() {
-    return enabled && !reducedMotion.matches;
+    return enabled && (!reducedMotion.matches || motionOptIn);
   }
 
   function getProfile() {
@@ -76,6 +79,31 @@ export function createParallaxController({
       applyDeadZone(clampInput(x), deadZone),
       applyDeadZone(clampInput(y), deadZone),
     );
+  }
+
+  function hidePermissionUi() {
+    permissionButton.hidden = true;
+    permissionButton.disabled = false;
+    permissionButton.textContent = "Включить эффект движения";
+    permissionStatusElement.hidden = true;
+    permissionStatusElement.textContent = "";
+  }
+
+  function showPermissionButton(requesting = false) {
+    permissionButton.hidden = false;
+    permissionButton.disabled = requesting;
+    permissionButton.textContent = requesting
+      ? "Запрашиваем разрешение…"
+      : "Гироскоп";
+    permissionStatusElement.hidden = true;
+    permissionStatusElement.textContent = "";
+  }
+
+  function showPermissionError(message) {
+    permissionButton.hidden = true;
+    permissionButton.disabled = false;
+    permissionStatusElement.textContent = message;
+    permissionStatusElement.hidden = false;
   }
 
   function resetInput(immediate = false) {
@@ -170,8 +198,13 @@ export function createParallaxController({
       return;
     }
 
+    if (motionOptIn) {
+      backgroundElement.classList.add("is-motion-parallax-enabled");
+    }
+
     orientationListening = true;
     permissionState = "granted";
+    hidePermissionUi();
     window.addEventListener(
       "deviceorientation",
       handleDeviceOrientation,
@@ -180,26 +213,53 @@ export function createParallaxController({
   }
 
   function configureOrientation() {
-    if (!isActive() || isDesktopMode() || orientationListening) {
+    if (!enabled || isDesktopMode()) {
+      hidePermissionUi();
+      return;
+    }
+
+    if (orientationListening) {
+      if (reducedMotion.matches && !motionOptIn) {
+        showPermissionButton();
+      } else {
+        hidePermissionUi();
+      }
       return;
     }
 
     const DeviceOrientation = window.DeviceOrientationEvent;
     if (typeof DeviceOrientation === "undefined") {
       permissionState = "unsupported";
+      showPermissionError("Гироскоп недоступен в этом браузере.");
       return;
     }
 
-    if (typeof DeviceOrientation.requestPermission !== "function") {
+    if (typeof DeviceOrientation.requestPermission === "function") {
+      if (permissionState === "requesting") {
+        showPermissionButton(true);
+      } else if (permissionState === "denied") {
+        showPermissionError(
+          "Доступ к движению отклонён. Разрешите его в настройках Safari и перезагрузите страницу.",
+        );
+      } else {
+        showPermissionButton();
+      }
+      return;
+    }
+
+    if (reducedMotion.matches && !motionOptIn) {
+      showPermissionButton();
+    } else {
       enableOrientation();
     }
   }
 
   function requestOrientationPermission() {
     if (
-      !isActive()
+      !enabled
       || isDesktopMode()
-      || permissionState !== "idle"
+      || permissionState === "requesting"
+      || permissionState === "granted"
     ) {
       return;
     }
@@ -207,6 +267,7 @@ export function createParallaxController({
     const DeviceOrientation = window.DeviceOrientationEvent;
     if (typeof DeviceOrientation === "undefined") {
       permissionState = "unsupported";
+      showPermissionError("Гироскоп недоступен в этом браузере.");
       return;
     }
 
@@ -217,21 +278,39 @@ export function createParallaxController({
 
     if (!window.isSecureContext) {
       permissionState = "denied";
+      showPermissionError(
+        "Для гироскопа нужно открыть страницу через защищённое HTTPS-соединение.",
+      );
       return;
     }
 
     permissionState = "requesting";
+    showPermissionButton(true);
     DeviceOrientation.requestPermission()
       .then((permission) => {
         if (permission === "granted") {
           enableOrientation();
         } else {
           permissionState = "denied";
+          configureOrientation();
         }
       })
       .catch(() => {
         permissionState = "denied";
+        configureOrientation();
       });
+  }
+
+  function handlePermissionButtonClick() {
+    motionOptIn = true;
+
+    if (orientationListening) {
+      backgroundElement.classList.add("is-motion-parallax-enabled");
+      hidePermissionUi();
+      return;
+    }
+
+    requestOrientationPermission();
   }
 
   function handleInputModeChange() {
@@ -258,10 +337,10 @@ export function createParallaxController({
 
   canvas.addEventListener("pointermove", handlePointerMove, passiveEventOptions);
   canvas.addEventListener("pointerleave", () => resetInput(), eventOptions);
-  canvas.addEventListener(
-    "touchstart",
-    requestOrientationPermission,
-    passiveEventOptions,
+  permissionButton.addEventListener(
+    "click",
+    handlePermissionButtonClick,
+    eventOptions,
   );
   window.addEventListener("blur", () => resetInput(), eventOptions);
   document.addEventListener(
@@ -353,6 +432,8 @@ export function createParallaxController({
       applyPose();
       disposed = true;
       eventController.abort();
+      hidePermissionUi();
+      backgroundElement.classList.remove("is-motion-parallax-enabled");
       backgroundElement.style.removeProperty("--background-parallax-x");
       backgroundElement.style.removeProperty("--background-parallax-y");
     },
