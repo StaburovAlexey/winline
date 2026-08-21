@@ -256,6 +256,17 @@ class ModelPhysics {
     this.vortexEnergy = 0;
     this.settleCheckAccumulator = 0;
     this.physicsActivated = false;
+    this.activeBodyCount = 0;
+    this.pendingLaunch = null;
+    this.launchBatchCycle = 0;
+    this.stepCostEstimateMs = 0;
+    this.performanceSnapshot = {
+      activeBodies: 0,
+      droppedTimeMs: 0,
+      queuedBodies: 0,
+      substeps: 0,
+      worldStepMs: 0,
+    };
     this.activeTouchPointerId = null;
     this.lastPointer = null;
     this.gestureArmed = true;
@@ -264,6 +275,11 @@ class ModelPhysics {
     this.eventController = new AbortController();
 
     this.bodyLaunchVelocity = new THREE.Vector3();
+    this.bodyLaunchAngularVelocity = new THREE.Vector3();
+    this.bodyTranslation = new THREE.Vector3();
+    this.bodyRotation = new THREE.Quaternion();
+    this.bodyAngularVelocity = new THREE.Vector3();
+    this.zeroVelocity = new THREE.Vector3();
     this.fluidForce = new THREE.Vector3();
     this.flowVelocity = new THREE.Vector3();
     this.bodyVelocity = new THREE.Vector3();
@@ -335,7 +351,7 @@ class ModelPhysics {
       .setGravityScale(1)
       .setLinearDamping(this.config.linearDamping)
       .setAngularDamping(this.config.angularDamping)
-      .setCanSleep(true)
+      .setCanSleep(false)
       .setEnabled(false)
       .setCcdEnabled(
         isBall
@@ -391,6 +407,9 @@ class ModelPhysics {
       body,
       collider,
       isBall,
+      enabled: false,
+      launchOrder: hashName(`${node.name}:launch-order`),
+      mass: colliderData.mass,
       settled: false,
       settleTime: 0,
       fallStarted: false,
@@ -480,6 +499,7 @@ class ModelPhysics {
 
     item.collider.setMass(mass);
     item.body.recomputeMassPropertiesFromColliders();
+    item.mass = mass;
     item.body.setGravityScale(1, false);
     item.body.setLinearDamping(this.config.linearDamping);
 
@@ -659,22 +679,6 @@ class ModelPhysics {
     }
   }
 
-  activatePhysicsBodies() {
-    const isInitialActivation = !this.physicsActivated;
-    if (!isInitialActivation) {
-      return false;
-    }
-
-    for (const { body } of this.bodies) {
-      body.setLinvel({ x: 0, y: 0, z: 0 }, false);
-      body.setAngvel({ x: 0, y: 0, z: 0 }, false);
-      body.setEnabled(true);
-    }
-
-    this.physicsActivated = true;
-    return true;
-  }
-
   applyShake({ strength = 1 } = {}) {
     const safeStrength = THREE.MathUtils.clamp(
       Number.isFinite(strength) ? strength : 1,
@@ -689,12 +693,7 @@ class ModelPhysics {
     this.launchBodies(shakeUpwardSpeed);
   }
 
-  launchBodies(upwardSpeed) {
-    const isInitialLaunch = this.activatePhysicsBodies();
-
-    this.vortexEnergy = 1;
-    this.settleCheckAccumulator = 0;
-
+  createLaunchProfile(upwardSpeed) {
     const launchSpeed = Math.min(upwardSpeed, this.config.launchMaxSpeed);
     const gestureStrength = THREE.MathUtils.clamp(
       (launchSpeed - this.config.launchMinSpeed) /
@@ -711,136 +710,213 @@ class ModelPhysics {
       gestureStrength,
     );
 
-    for (const item of this.bodies) {
-      const wasSettled = item.settled;
-      const shouldLift = isInitialLaunch || wasSettled;
+    return { baseLaunchVelocity, gestureStrength, launchSpeed };
+  }
 
-      item.settled = false;
-      item.settleTime = 0;
-      item.body.wakeUp();
-      if (shouldLift) {
-        this.resetFallState(item);
-      }
+  launchBody(item, profile, shouldLift) {
+    const wasActive = item.enabled && !item.settled;
+
+    if (!item.enabled) {
+      item.body.setEnabled(true);
+      item.enabled = true;
+    }
+
+    item.settled = false;
+    item.settleTime = 0;
+    if (!wasActive) {
+      this.activeBodyCount += 1;
+    }
+
+    if (shouldLift) {
+      this.resetFallState(item);
+    } else {
       item.body.resetForces(false);
       item.body.resetTorques(false);
-      const targetUpwardVelocity =
-        baseLaunchVelocity * item.responsiveness;
+    }
 
-      const translation = item.body.translation();
+    const targetUpwardVelocity =
+      profile.baseLaunchVelocity * item.responsiveness;
 
+    item.body.translation(this.bodyTranslation);
+
+    this.radialOffset
+      .copy(this.bodyTranslation)
+      .sub(this.vortexCenter)
+      .sub(item.vortexOffset)
+      .addScaledVector(
+        this.upAxis,
+        -this.radialOffset.dot(this.upAxis),
+      );
+
+    if (this.radialOffset.lengthSq() < Number.EPSILON) {
       this.radialOffset
-        .set(translation.x, translation.y, translation.z)
-        .sub(this.vortexCenter)
-        .sub(item.vortexOffset)
+        .copy(item.launchDrift)
         .addScaledVector(
           this.upAxis,
-          -this.radialOffset.dot(this.upAxis),
+          -item.launchDrift.dot(this.upAxis),
         );
+    }
 
-      if (this.radialOffset.lengthSq() < Number.EPSILON) {
-        this.radialOffset
-          .copy(item.launchDrift)
-          .addScaledVector(
-            this.upAxis,
-            -item.launchDrift.dot(this.upAxis),
-          );
-      }
+    this.radialDirection.copy(this.radialOffset).normalize();
+    this.tangentDirection
+      .crossVectors(this.upAxis, this.radialDirection)
+      .normalize();
 
-      this.radialDirection.copy(this.radialOffset).normalize();
-      this.tangentDirection
-        .crossVectors(this.upAxis, this.radialDirection)
-        .normalize();
+    if (shouldLift) {
+      this.bodyLaunchVelocity
+        .copy(item.launchDrift)
+        .addScaledVector(
+          this.upAxis,
+          -item.launchDrift.dot(this.upAxis),
+        )
+        .normalize()
+        .multiplyScalar(this.config.launchSpread)
+        .addScaledVector(
+          this.radialDirection,
+          this.config.launchRadialVelocity * item.launchRadialFactor,
+        )
+        .addScaledVector(
+          this.tangentDirection,
+          this.config.launchSwirlVelocity *
+            item.swirlResponse *
+            item.swirlDirection,
+        )
+        .addScaledVector(this.upAxis, targetUpwardVelocity);
+    } else {
+      item.body.linvel(this.bodyVelocity);
+      this.bodyLaunchVelocity
+        .copy(this.bodyVelocity)
+        .addScaledVector(
+          this.tangentDirection,
+          this.config.launchSwirlVelocity *
+            item.swirlResponse *
+            item.swirlDirection,
+        )
+        .addScaledVector(
+          this.radialDirection,
+          this.config.launchRadialVelocity *
+            0.35 *
+            item.launchRadialFactor,
+        )
+        .addScaledVector(
+          this.upAxis,
+          this.config.repeatLiftVelocity,
+        );
+    }
 
-      if (shouldLift) {
-        this.bodyLaunchVelocity
-          .copy(item.launchDrift)
-          .addScaledVector(
-            this.upAxis,
-            -item.launchDrift.dot(this.upAxis),
-          )
-          .normalize()
-          .multiplyScalar(this.config.launchSpread)
-          .addScaledVector(
-            this.radialDirection,
-            this.config.launchRadialVelocity * item.launchRadialFactor,
-          )
-          .addScaledVector(
-            this.tangentDirection,
-            this.config.launchSwirlVelocity *
-              item.swirlResponse *
-              item.swirlDirection,
-          )
-          .addScaledVector(this.upAxis, targetUpwardVelocity);
-      } else {
-        const currentVelocity = item.body.linvel();
-        this.bodyLaunchVelocity
-          .set(currentVelocity.x, currentVelocity.y, currentVelocity.z)
-          .addScaledVector(
-            this.tangentDirection,
-            this.config.launchSwirlVelocity *
-              item.swirlResponse *
-              item.swirlDirection,
-          )
-          .addScaledVector(
-            this.radialDirection,
-            this.config.launchRadialVelocity *
-              0.35 *
-              item.launchRadialFactor,
-          )
-          .addScaledVector(
-            this.upAxis,
-            this.config.repeatLiftVelocity,
-          );
-      }
+    item.body.setLinvel(this.bodyLaunchVelocity, true);
+    const spinSpeed =
+      item.spinSpeed *
+      THREE.MathUtils.lerp(0.85, 1.15, profile.gestureStrength);
+    this.bodyLaunchAngularVelocity
+      .copy(item.spinAxis)
+      .multiplyScalar(spinSpeed * item.spinDirection);
+    item.body.setAngvel(this.bodyLaunchAngularVelocity, false);
+  }
 
-      item.body.setLinvel(this.bodyLaunchVelocity, true);
-      const spinSpeed =
-        item.spinSpeed * THREE.MathUtils.lerp(0.85, 1.15, gestureStrength);
-      item.body.setAngvel({
-        x: item.spinAxis.x * spinSpeed * item.spinDirection,
-        y: item.spinAxis.y * spinSpeed * item.spinDirection,
-        z: item.spinAxis.z * spinSpeed * item.spinDirection,
-      }, true);
+  processPendingLaunchBatch() {
+    const pendingLaunch = this.pendingLaunch;
+    if (!pendingLaunch) {
+      return;
+    }
+
+    const endIndex = Math.min(
+      pendingLaunch.nextIndex + pendingLaunch.batchSize,
+      pendingLaunch.items.length,
+    );
+
+    for (
+      let index = pendingLaunch.nextIndex;
+      index < endIndex;
+      index += 1
+    ) {
+      const item = pendingLaunch.items[index];
+      const shouldLift = !item.enabled || item.settled;
+      this.launchBody(item, pendingLaunch.profile, shouldLift);
+    }
+
+    pendingLaunch.nextIndex = endIndex;
+    if (pendingLaunch.nextIndex >= pendingLaunch.items.length) {
+      this.pendingLaunch = null;
     }
   }
 
+  launchBodies(upwardSpeed) {
+    this.physicsActivated = true;
+    this.vortexEnergy = 1;
+    this.settleCheckAccumulator = 0;
+
+    const profile = this.createLaunchProfile(upwardSpeed);
+    if (this.bodies.length === 0) {
+      return;
+    }
+
+    const pendingProfile = this.pendingLaunch?.profile;
+    const strongestProfile =
+      pendingProfile?.launchSpeed > profile.launchSpeed
+        ? pendingProfile
+        : profile;
+    if (this.pendingLaunch) {
+      this.pendingLaunch.profile = strongestProfile;
+      return;
+    }
+
+    const launchBatchFrames = Math.max(
+      Math.floor(this.config.launchBatchFrames ?? 1),
+      1,
+    );
+    const launchItems = [...this.bodies].sort(
+      (left, right) => left.launchOrder - right.launchOrder,
+    );
+    const batchSize = Math.ceil(launchItems.length / launchBatchFrames);
+    const startIndex =
+      (this.launchBatchCycle * batchSize) % launchItems.length;
+
+    if (startIndex > 0) {
+      launchItems.push(...launchItems.splice(0, startIndex));
+    }
+
+    this.launchBatchCycle =
+      (this.launchBatchCycle + 1) % launchBatchFrames;
+    this.pendingLaunch = {
+      batchSize,
+      items: launchItems,
+      nextIndex: 0,
+      profile: strongestProfile,
+    };
+  }
+
   clampBodySpeeds() {
-    for (const { body, settled } of this.bodies) {
-      if (settled) {
+    for (const { body, enabled, settled } of this.bodies) {
+      if (!enabled || settled) {
         continue;
       }
 
-      const linearVelocity = body.linvel();
+      body.linvel(this.bodyVelocity);
       const linearSpeed = Math.hypot(
-        linearVelocity.x,
-        linearVelocity.y,
-        linearVelocity.z,
+        this.bodyVelocity.x,
+        this.bodyVelocity.y,
+        this.bodyVelocity.z,
       );
       const maxLinearSpeed = this.config.maxLinearSpeed;
 
       if (linearSpeed > maxLinearSpeed) {
         const scale = maxLinearSpeed / linearSpeed;
-        body.setLinvel({
-          x: linearVelocity.x * scale,
-          y: linearVelocity.y * scale,
-          z: linearVelocity.z * scale,
-        }, true);
+        this.bodyVelocity.multiplyScalar(scale);
+        body.setLinvel(this.bodyVelocity, true);
       }
 
-      const angularVelocity = body.angvel();
+      body.angvel(this.bodyAngularVelocity);
       const angularSpeed = Math.hypot(
-        angularVelocity.x,
-        angularVelocity.y,
-        angularVelocity.z,
+        this.bodyAngularVelocity.x,
+        this.bodyAngularVelocity.y,
+        this.bodyAngularVelocity.z,
       );
 
       if (angularSpeed > this.config.maxAngularSpeed) {
         const scale = this.config.maxAngularSpeed / angularSpeed;
-        body.setAngvel({
-          x: angularVelocity.x * scale,
-          y: angularVelocity.y * scale,
-          z: angularVelocity.z * scale,
-        }, true);
+        this.bodyAngularVelocity.multiplyScalar(scale);
+        body.setAngvel(this.bodyAngularVelocity, true);
       }
     }
   }
@@ -854,15 +930,15 @@ class ModelPhysics {
     const vortexActive = vortexEnergy > 0.01;
 
     for (const item of this.bodies) {
-      if (item.settled) {
+      if (!item.enabled || item.settled) {
         continue;
       }
 
-      const velocity = item.body.linvel();
+      item.body.linvel(this.bodyVelocity);
       const verticalVelocity =
-        velocity.x * this.upAxis.x +
-        velocity.y * this.upAxis.y +
-        velocity.z * this.upAxis.z;
+        this.bodyVelocity.x * this.upAxis.x +
+        this.bodyVelocity.y * this.upAxis.y +
+        this.bodyVelocity.z * this.upAxis.z;
 
       if (!item.fallStarted && verticalVelocity <= 0) {
         item.fallStarted = true;
@@ -896,11 +972,11 @@ class ModelPhysics {
               this.elapsedTime * item.flowFrequencyZ + item.flowPhaseZ,
             ),
           )
-          .multiplyScalar(acceleration * item.body.mass());
+          .multiplyScalar(acceleration * item.mass);
 
-        const translation = item.body.translation();
+        item.body.translation(this.bodyTranslation);
         this.radialOffset
-          .set(translation.x, translation.y, translation.z)
+          .copy(this.bodyTranslation)
           .sub(this.vortexCenter)
           .sub(item.vortexOffset)
           .addScaledVector(
@@ -939,16 +1015,14 @@ class ModelPhysics {
             vortexEnergy *
             vortexResponse *
             swirlDirection;
-          const velocity = item.body.linvel();
 
           this.bodyVelocity
-            .set(velocity.x, velocity.y, velocity.z)
             .addScaledVector(
               this.upAxis,
               -(
-                velocity.x * this.upAxis.x +
-                velocity.y * this.upAxis.y +
-                velocity.z * this.upAxis.z
+                this.bodyVelocity.x * this.upAxis.x +
+                this.bodyVelocity.y * this.upAxis.y +
+                this.bodyVelocity.z * this.upAxis.z
               ),
             );
           this.flowVelocity
@@ -959,14 +1033,14 @@ class ModelPhysics {
               this.config.vortexFlowCoupling *
                 vortexEnergy *
                 vortexResponse *
-                item.body.mass(),
+                item.mass,
           );
           this.fluidForce.add(this.flowVelocity);
           this.fluidForce.addScaledVector(
             this.radialDirection,
             -this.config.vortexInwardAcceleration *
               vortexEnergy *
-              item.body.mass(),
+              item.mass,
           );
         }
 
@@ -980,7 +1054,7 @@ class ModelPhysics {
           this.config.vortexLiftAcceleration *
             liftRatio *
             vortexEnergy *
-            item.body.mass(),
+            item.mass,
         );
       }
 
@@ -997,7 +1071,7 @@ class ModelPhysics {
             this.config.fallDriftAcceleration *
               item.fallDriftStrength *
               driftPulse *
-              item.body.mass(),
+              item.mass,
           );
         this.fluidForce.add(this.fallDriftForce);
       }
@@ -1035,22 +1109,22 @@ class ModelPhysics {
     }
 
     for (const item of this.bodies) {
-      if (item.settled || !this.isTouchingFloor(item)) {
+      if (!item.enabled || item.settled || !this.isTouchingFloor(item)) {
         item.settleTime = 0;
         continue;
       }
 
-      const linearVelocity = item.body.linvel();
-      const angularVelocity = item.body.angvel();
+      item.body.linvel(this.bodyVelocity);
+      item.body.angvel(this.bodyAngularVelocity);
       const linearSpeed = Math.hypot(
-        linearVelocity.x,
-        linearVelocity.y,
-        linearVelocity.z,
+        this.bodyVelocity.x,
+        this.bodyVelocity.y,
+        this.bodyVelocity.z,
       );
       const angularSpeed = Math.hypot(
-        angularVelocity.x,
-        angularVelocity.y,
-        angularVelocity.z,
+        this.bodyAngularVelocity.x,
+        this.bodyAngularVelocity.y,
+        this.bodyAngularVelocity.z,
       );
 
       if (
@@ -1068,64 +1142,123 @@ class ModelPhysics {
 
       item.body.resetForces(false);
       item.body.resetTorques(false);
-      item.body.setLinvel({ x: 0, y: 0, z: 0 }, false);
-      item.body.setAngvel({ x: 0, y: 0, z: 0 }, false);
+      item.body.setLinvel(this.zeroVelocity, false);
+      item.body.setAngvel(this.zeroVelocity, false);
       item.body.setAngularDamping(this.config.angularDamping);
       item.body.sleep();
       item.settled = true;
+      this.activeBodyCount = Math.max(this.activeBodyCount - 1, 0);
     }
   }
 
   syncNodes() {
-    for (const { node, body } of this.bodies) {
-      const translation = body.translation();
-      const rotation = body.rotation();
+    for (const { node, body, enabled } of this.bodies) {
+      if (!enabled) {
+        continue;
+      }
 
-      node.position.set(translation.x, translation.y, translation.z);
-      node.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+      body.translation(node.position);
+      body.rotation(this.bodyRotation);
+      node.quaternion.copy(this.bodyRotation);
     }
   }
 
+  getPerformanceSnapshot() {
+    return this.performanceSnapshot;
+  }
+
   update(deltaTime) {
-    const maximumAccumulatedTime =
-      this.config.fixedTimeStep * this.config.maxSubSteps;
-    this.accumulator = Math.min(
-      this.accumulator + Math.max(deltaTime, 0),
-      maximumAccumulatedTime,
-    );
+    const queuedBodies = this.pendingLaunch
+      ? this.pendingLaunch.items.length - this.pendingLaunch.nextIndex
+      : 0;
+    if (
+      !this.physicsActivated ||
+      (this.activeBodyCount === 0 && queuedBodies === 0)
+    ) {
+      this.accumulator = 0;
+      this.performanceSnapshot.activeBodies = this.activeBodyCount;
+      this.performanceSnapshot.droppedTimeMs = 0;
+      this.performanceSnapshot.queuedBodies = queuedBodies;
+      this.performanceSnapshot.substeps = 0;
+      this.performanceSnapshot.worldStepMs = 0;
+      return;
+    }
+
+    const fixedTimeStep = this.config.fixedTimeStep;
+    const maximumAccumulatedTime = fixedTimeStep * this.config.maxSubSteps;
+    const accumulatedTime = this.accumulator + Math.max(deltaTime, 0);
+    let droppedTime = Math.max(accumulatedTime - maximumAccumulatedTime, 0);
+    this.accumulator = Math.min(accumulatedTime, maximumAccumulatedTime);
+
+    const updateStartTime = performance.now();
+    if (this.pendingLaunch && this.accumulator >= fixedTimeStep) {
+      this.processPendingLaunchBatch();
+    }
 
     let substeps = 0;
+    let worldStepTime = 0;
+    const physicsFrameBudgetMs = Math.max(
+      this.config.physicsFrameBudgetMs ?? Infinity,
+      0,
+    );
+
     while (
-      this.accumulator >= this.config.fixedTimeStep &&
+      this.accumulator >= fixedTimeStep &&
       substeps < this.config.maxSubSteps
     ) {
-      if (this.physicsActivated) {
-        this.elapsedTime += this.config.fixedTimeStep;
-        this.applyFluidMotion(this.config.fixedTimeStep);
-      }
-      this.world.step();
-      if (this.physicsActivated) {
-        this.settleCheckAccumulator += this.config.fixedTimeStep;
+      if (substeps > 0) {
+        const elapsedUpdateTime = performance.now() - updateStartTime;
         if (
-          this.settleCheckAccumulator >= this.config.settleCheckInterval
+          elapsedUpdateTime + this.stepCostEstimateMs >
+          physicsFrameBudgetMs
         ) {
-          const settleDeltaTime = this.settleCheckAccumulator;
-          this.settleCheckAccumulator = 0;
-          this.updateSettledBodies(settleDeltaTime);
+          const wholeStepDebt =
+            Math.floor(this.accumulator / fixedTimeStep) * fixedTimeStep;
+          this.accumulator -= wholeStepDebt;
+          droppedTime += wholeStepDebt;
+          break;
         }
       }
+
+      const substepStartTime = performance.now();
+      this.elapsedTime += fixedTimeStep;
+      this.applyFluidMotion(fixedTimeStep);
+      const worldStepStartTime = performance.now();
+      this.world.step();
+      worldStepTime += performance.now() - worldStepStartTime;
+      this.settleCheckAccumulator += fixedTimeStep;
+      if (
+        this.settleCheckAccumulator >= this.config.settleCheckInterval
+      ) {
+        const settleDeltaTime = this.settleCheckAccumulator;
+        this.settleCheckAccumulator = 0;
+        this.updateSettledBodies(settleDeltaTime);
+      }
       this.clampBodySpeeds();
-      this.accumulator -= this.config.fixedTimeStep;
+      const substepCost = performance.now() - substepStartTime;
+      this.stepCostEstimateMs =
+        this.stepCostEstimateMs === 0
+          ? substepCost
+          : THREE.MathUtils.lerp(this.stepCostEstimateMs, substepCost, 0.2);
+      this.accumulator -= fixedTimeStep;
       substeps += 1;
     }
 
     this.syncNodes();
+    this.performanceSnapshot.activeBodies = this.activeBodyCount;
+    this.performanceSnapshot.droppedTimeMs = droppedTime * 1000;
+    this.performanceSnapshot.queuedBodies = this.pendingLaunch
+      ? this.pendingLaunch.items.length - this.pendingLaunch.nextIndex
+      : 0;
+    this.performanceSnapshot.substeps = substeps;
+    this.performanceSnapshot.worldStepMs = worldStepTime;
   }
 
   dispose() {
     this.eventController.abort();
     this.world.free();
     this.bodies.length = 0;
+    this.pendingLaunch = null;
   }
 }
 

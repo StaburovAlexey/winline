@@ -51,9 +51,19 @@ renderer.setPixelRatio(
 );
 sceneElement.append(renderer.domElement);
 
-const stats = appConfig.renderer.showStats ? new Stats() : null;
+const statsRequested =
+  new URLSearchParams(window.location.search).get("stats") === "1";
+const statsEnabled =
+  import.meta.env.DEV || statsRequested || appConfig.renderer.showStats;
+const stats = statsEnabled ? new Stats() : null;
 const physicsStatsPanel = stats?.addPanel(
   new Stats.Panel("PHY", "#ff8", "#221"),
+);
+const physicsStepStatsPanel = stats?.addPanel(
+  new Stats.Panel("STP", "#f8f", "#212"),
+);
+const physicsSubstepStatsPanel = stats?.addPanel(
+  new Stats.Panel("SUB", "#8f8", "#121"),
 );
 const renderStatsPanel = stats?.addPanel(
   new Stats.Panel("REN", "#8ff", "#122"),
@@ -391,6 +401,12 @@ function animate(time) {
   const physicsStartTime = performance.now();
   modelPhysics?.update(deltaTime);
   physicsStatsPanel?.update(performance.now() - physicsStartTime, 20);
+  const physicsSnapshot = modelPhysics?.getPerformanceSnapshot();
+  physicsStepStatsPanel?.update(physicsSnapshot?.worldStepMs ?? 0, 20);
+  physicsSubstepStatsPanel?.update(
+    physicsSnapshot?.substeps ?? 0,
+    appConfig.physics.maxSubSteps,
+  );
   controls.update();
   parallax.update(deltaTime);
   const renderStartTime = performance.now();
