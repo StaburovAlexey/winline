@@ -6,9 +6,9 @@ const CLIP_NAME_PATTERN = /^clip_low(?:[._]?\d+)?$/;
 const BALL_NAME_PATTERN = /^ball\d+$/;
 const STATIC_BASE_NAME_PATTERN = /^static_base(?:_\d+)?$/;
 const MIN_POINTER_DELTA_TIME = 1 / 240;
-const ENVIRONMENT_COLLISION_GROUPS = 0x00010002;
+const ENVIRONMENT_COLLISION_GROUPS = 0x00010006;
 const MOVING_COLLISION_GROUPS = 0x00020001;
-const VORTEX_MOVING_COLLISION_GROUPS = 0x00020003;
+const BALL_COLLISION_GROUPS = 0x00040005;
 
 let rapierInitialization = null;
 
@@ -43,6 +43,32 @@ function createDeterministicVector(seed, offset = 0) {
   }
 
   return vector.normalize();
+}
+
+function createRandomHorizontalVector(upAxis) {
+  const vector = new THREE.Vector3(
+    Math.random() * 2 - 1,
+    Math.random() * 2 - 1,
+    Math.random() * 2 - 1,
+  );
+
+  vector.addScaledVector(upAxis, -vector.dot(upAxis));
+
+  if (vector.lengthSq() < Number.EPSILON) {
+    vector.set(1, 0, 0);
+    vector.addScaledVector(upAxis, -vector.dot(upAxis));
+
+    if (vector.lengthSq() < Number.EPSILON) {
+      vector.set(0, 0, 1);
+      vector.addScaledVector(upAxis, -vector.dot(upAxis));
+    }
+  }
+
+  return vector.normalize();
+}
+
+function randomFloat(min, max) {
+  return THREE.MathUtils.lerp(min, max, Math.random());
 }
 
 function getGeometryBox(geometry) {
@@ -129,6 +155,38 @@ function createStaticTrimesh(
   return world.createCollider(collider);
 }
 
+function createStaticBaseCuboid(
+  world,
+  mesh,
+  rootInverseWorldMatrix,
+  restitution,
+  friction,
+  thickness,
+  contactSkin,
+) {
+  const bounds = getRootLocalBounds(mesh, rootInverseWorldMatrix);
+  const size = bounds.getSize(new THREE.Vector3());
+  const halfHeight = Math.max(size.y * 0.5, thickness * 0.5);
+  const center = bounds.getCenter(new THREE.Vector3());
+
+  // Keep the rendered upper surface aligned while extending the collider down.
+  center.y = bounds.max.y - halfHeight;
+
+  const collider = RAPIER.ColliderDesc.cuboid(
+    size.x * 0.5,
+    halfHeight,
+    size.z * 0.5,
+  )
+    .setTranslation(center.x, center.y, center.z)
+    .setFriction(friction)
+    .setRestitution(restitution)
+    .setContactSkin(contactSkin)
+    .setCollisionGroups(ENVIRONMENT_COLLISION_GROUPS)
+    .setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Min);
+
+  return world.createCollider(collider);
+}
+
 function getScaledBoxCenter(node, box) {
   return box
     .getCenter(new THREE.Vector3())
@@ -184,6 +242,7 @@ class ModelPhysics {
     sphereColliderNode,
     movingNodes,
     staticNodes,
+    staticBaseColliderNodes = new Set(),
   }) {
     this.canvas = canvas;
     this.config = config;
@@ -195,7 +254,7 @@ class ModelPhysics {
     this.accumulator = 0;
     this.elapsedTime = 0;
     this.vortexEnergy = 0;
-    this.vortexCollisionsEnabled = false;
+    this.settleCheckAccumulator = 0;
     this.physicsActivated = false;
     this.activeTouchPointerId = null;
     this.lastPointer = null;
@@ -205,14 +264,13 @@ class ModelPhysics {
     this.eventController = new AbortController();
 
     this.bodyLaunchVelocity = new THREE.Vector3();
-    this.impulse = new THREE.Vector3();
-    this.torqueImpulse = new THREE.Vector3();
     this.fluidForce = new THREE.Vector3();
     this.flowVelocity = new THREE.Vector3();
     this.bodyVelocity = new THREE.Vector3();
     this.radialOffset = new THREE.Vector3();
     this.radialDirection = new THREE.Vector3();
     this.tangentDirection = new THREE.Vector3();
+    this.fallDriftForce = new THREE.Vector3();
     this.upAxis = new THREE.Vector3(
       -config.gravity.x,
       -config.gravity.y,
@@ -238,13 +296,23 @@ class ModelPhysics {
       config.sphereContactSkin,
     );
     staticNodes.forEach((node) => {
-      const collider = createStaticTrimesh(
-        this.world,
-        node,
-        rootInverseWorldMatrix,
-        config.staticRestitution,
-        config.floorFriction,
-      );
+      const collider = staticBaseColliderNodes.has(node)
+        ? createStaticBaseCuboid(
+            this.world,
+            node,
+            rootInverseWorldMatrix,
+            config.staticRestitution,
+            config.floorFriction,
+            config.staticBaseColliderThickness,
+            config.staticBaseColliderContactSkin,
+          )
+        : createStaticTrimesh(
+            this.world,
+            node,
+            rootInverseWorldMatrix,
+            config.staticRestitution,
+            config.floorFriction,
+          );
       this.floorColliderHandles.add(collider.handle);
     });
     movingNodes.forEach((node) => this.createDynamicBody(node));
@@ -264,11 +332,17 @@ class ModelPhysics {
         z: node.quaternion.z,
         w: node.quaternion.w,
       })
+      .setGravityScale(1)
       .setLinearDamping(this.config.linearDamping)
       .setAngularDamping(this.config.angularDamping)
-      .setCanSleep(false)
+      .setCanSleep(true)
       .setEnabled(false)
-      .setCcdEnabled(true);
+      .setCcdEnabled(
+        isBall
+          ? this.config.ballCcdEnabled ?? true
+          : this.config.clipCcdEnabled ?? true,
+      )
+      .setAdditionalSolverIterations(this.config.additionalSolverIterations);
     const body = this.world.createRigidBody(bodyDescriptor);
 
     colliderData.descriptor
@@ -280,7 +354,9 @@ class ModelPhysics {
       .setMass(colliderData.mass)
       .setFriction(this.config.friction)
       .setRestitution(this.config.restitution)
-      .setCollisionGroups(MOVING_COLLISION_GROUPS);
+      .setCollisionGroups(
+        isBall ? BALL_COLLISION_GROUPS : MOVING_COLLISION_GROUPS,
+      );
 
     const collider = this.world.createCollider(colliderData.descriptor, body);
 
@@ -314,8 +390,14 @@ class ModelPhysics {
       node,
       body,
       collider,
+      isBall,
       settled: false,
       settleTime: 0,
+      fallStarted: false,
+      fallGravityScale: 1,
+      fallLinearDamping: this.config.linearDamping,
+      fallDriftStrength: 1,
+      fallDriftDirection: new THREE.Vector3(1, 0, 0),
       responsiveness: THREE.MathUtils.lerp(
         this.config.launchResponsivenessMin,
         this.config.launchResponsivenessMax,
@@ -369,10 +451,67 @@ class ModelPhysics {
         hashName(`${node.name}:strength`),
       ),
       launchDrift: createDeterministicVector(seed, 0.71),
-      torqueLever: createDeterministicVector(seed, 0.37).multiplyScalar(
-        colliderData.boundaryRadius,
+      spinAxis: createDeterministicVector(
+        hashName(`${node.name}:spin-axis`),
+        0.47,
+      ),
+      spinDirection:
+        hashName(`${node.name}:spin-direction`) < 0.5 ? -1 : 1,
+      spinSpeed: THREE.MathUtils.lerp(
+        this.config.launchSpinSpeedMin,
+        this.config.launchSpinSpeedMax,
+        hashName(`${node.name}:spin-speed`),
       ),
     });
+
+    this.initializeFallProfile(this.bodies[this.bodies.length - 1]);
+  }
+
+  initializeFallProfile(item) {
+    const weightRatio = item.isBall ? 1 : Math.random();
+    const mass = item.isBall
+      ? this.config.ballMass
+      : this.config.clipMass *
+        THREE.MathUtils.lerp(
+          this.config.clipMassFactorMin,
+          this.config.clipMassFactorMax,
+          weightRatio,
+        );
+
+    item.collider.setMass(mass);
+    item.body.recomputeMassPropertiesFromColliders();
+    item.body.setGravityScale(1, false);
+    item.body.setLinearDamping(this.config.linearDamping);
+
+    item.fallGravityScale = item.isBall
+      ? this.config.ballFallGravityScale
+      : THREE.MathUtils.lerp(
+          this.config.fallGravityScaleMin,
+          this.config.fallGravityScaleMax,
+          weightRatio,
+        );
+    item.fallLinearDamping = item.isBall
+      ? this.config.ballFallLinearDamping
+      : THREE.MathUtils.lerp(
+          this.config.fallLinearDampingMax,
+          this.config.fallLinearDampingMin,
+          weightRatio,
+        );
+    item.fallDriftStrength = randomFloat(
+      this.config.fallDriftStrengthMin,
+      this.config.fallDriftStrengthMax,
+    );
+    item.fallDriftDirection.copy(createRandomHorizontalVector(this.upAxis));
+    item.fallStarted = false;
+  }
+
+  resetFallState(item) {
+    item.body.setGravityScale(1, false);
+    item.body.setLinearDamping(this.config.linearDamping);
+    item.body.setAngularDamping(
+      this.config.flightAngularDamping ?? this.config.angularDamping,
+    );
+    item.fallStarted = false;
   }
 
   bindPointerEvents() {
@@ -515,7 +654,9 @@ class ModelPhysics {
   }
 
   launchBodies(upwardSpeed) {
-    if (!this.physicsActivated) {
+    const isInitialLaunch = !this.physicsActivated;
+
+    if (isInitialLaunch) {
       for (const { body } of this.bodies) {
         body.setLinvel({ x: 0, y: 0, z: 0 }, false);
         body.setAngvel({ x: 0, y: 0, z: 0 }, false);
@@ -526,7 +667,7 @@ class ModelPhysics {
     }
 
     this.vortexEnergy = 1;
-    this.vortexCollisionsEnabled = true;
+    this.settleCheckAccumulator = 0;
 
     const launchSpeed = Math.min(upwardSpeed, this.config.launchMaxSpeed);
     const gestureStrength = THREE.MathUtils.clamp(
@@ -545,16 +686,22 @@ class ModelPhysics {
     );
 
     for (const item of this.bodies) {
+      const wasSettled = item.settled;
+      const shouldLift = isInitialLaunch || wasSettled;
+
       item.settled = false;
       item.settleTime = 0;
+      item.body.wakeUp();
+      if (shouldLift) {
+        this.resetFallState(item);
+      }
       item.body.resetForces(false);
       item.body.resetTorques(false);
-      item.collider.setCollisionGroups(VORTEX_MOVING_COLLISION_GROUPS);
-      item.collider.setRestitution(this.config.vortexRestitution);
       const targetUpwardVelocity =
         baseLaunchVelocity * item.responsiveness;
 
       const translation = item.body.translation();
+
       this.radialOffset
         .set(translation.x, translation.y, translation.z)
         .sub(this.vortexCenter)
@@ -578,41 +725,65 @@ class ModelPhysics {
         .crossVectors(this.upAxis, this.radialDirection)
         .normalize();
 
-      this.bodyLaunchVelocity
-        .copy(item.launchDrift)
-        .addScaledVector(
-          this.upAxis,
-          -item.launchDrift.dot(this.upAxis),
-        )
-        .normalize()
-        .multiplyScalar(this.config.launchSpread)
-        .addScaledVector(
-          this.radialDirection,
-          this.config.launchRadialVelocity * item.launchRadialFactor,
-        )
-        .addScaledVector(
-          this.tangentDirection,
-          this.config.launchSwirlVelocity *
-            item.swirlResponse *
-            item.swirlDirection,
-        )
-        .addScaledVector(this.upAxis, targetUpwardVelocity);
+      if (shouldLift) {
+        this.bodyLaunchVelocity
+          .copy(item.launchDrift)
+          .addScaledVector(
+            this.upAxis,
+            -item.launchDrift.dot(this.upAxis),
+          )
+          .normalize()
+          .multiplyScalar(this.config.launchSpread)
+          .addScaledVector(
+            this.radialDirection,
+            this.config.launchRadialVelocity * item.launchRadialFactor,
+          )
+          .addScaledVector(
+            this.tangentDirection,
+            this.config.launchSwirlVelocity *
+              item.swirlResponse *
+              item.swirlDirection,
+          )
+          .addScaledVector(this.upAxis, targetUpwardVelocity);
+      } else {
+        const currentVelocity = item.body.linvel();
+        this.bodyLaunchVelocity
+          .set(currentVelocity.x, currentVelocity.y, currentVelocity.z)
+          .addScaledVector(
+            this.tangentDirection,
+            this.config.launchSwirlVelocity *
+              item.swirlResponse *
+              item.swirlDirection,
+          )
+          .addScaledVector(
+            this.radialDirection,
+            this.config.launchRadialVelocity *
+              0.35 *
+              item.launchRadialFactor,
+          )
+          .addScaledVector(
+            this.upAxis,
+            this.config.repeatLiftVelocity,
+          );
+      }
 
       item.body.setLinvel(this.bodyLaunchVelocity, true);
-      this.impulse
-        .copy(this.bodyLaunchVelocity)
-        .multiplyScalar(item.body.mass());
-
-      this.torqueImpulse
-        .copy(item.torqueLever)
-        .cross(this.impulse)
-        .multiplyScalar(this.config.launchTorqueGain);
-      item.body.applyTorqueImpulse(this.torqueImpulse, true);
+      const spinSpeed =
+        item.spinSpeed * THREE.MathUtils.lerp(0.85, 1.15, gestureStrength);
+      item.body.setAngvel({
+        x: item.spinAxis.x * spinSpeed * item.spinDirection,
+        y: item.spinAxis.y * spinSpeed * item.spinDirection,
+        z: item.spinAxis.z * spinSpeed * item.spinDirection,
+      }, true);
     }
   }
 
   clampBodySpeeds() {
-    for (const { body } of this.bodies) {
+    for (const { body, settled } of this.bodies) {
+      if (settled) {
+        continue;
+      }
+
       const linearVelocity = body.linvel();
       const linearSpeed = Math.hypot(
         linearVelocity.x,
@@ -654,33 +825,53 @@ class ModelPhysics {
       this.vortexRadius * this.config.vortexCoreRatio,
       Number.EPSILON,
     );
+    const vortexActive = vortexEnergy > 0.01;
 
     for (const item of this.bodies) {
       if (item.settled) {
         continue;
       }
 
-      const acceleration =
-        this.config.turbulenceAcceleration *
-        item.flowStrength *
-        item.turbulenceResponse *
-        vortexEnergy;
+      const velocity = item.body.linvel();
+      const verticalVelocity =
+        velocity.x * this.upAxis.x +
+        velocity.y * this.upAxis.y +
+        velocity.z * this.upAxis.z;
 
-      this.fluidForce
-        .set(
-          Math.sin(
-            this.elapsedTime * item.flowFrequencyX + item.flowPhaseX,
-          ),
-          Math.sin(
-            this.elapsedTime * item.flowFrequencyY + item.flowPhaseY,
-          ) * this.config.verticalTurbulenceRatio,
-          Math.cos(
-            this.elapsedTime * item.flowFrequencyZ + item.flowPhaseZ,
-          ),
-        )
-        .multiplyScalar(acceleration * item.body.mass());
+      if (!item.fallStarted && verticalVelocity <= 0) {
+        item.fallStarted = true;
+        item.body.setGravityScale(item.fallGravityScale, true);
+        item.body.setLinearDamping(item.fallLinearDamping);
+      }
 
-      if (vortexEnergy > 0) {
+      const hasCustomForce = vortexActive || item.fallStarted;
+      if (!hasCustomForce) {
+        continue;
+      }
+
+      this.fluidForce.set(0, 0, 0);
+
+      if (vortexActive) {
+        const acceleration =
+          this.config.turbulenceAcceleration *
+          item.flowStrength *
+          item.turbulenceResponse *
+          vortexEnergy;
+
+        this.fluidForce
+          .set(
+            Math.sin(
+              this.elapsedTime * item.flowFrequencyX + item.flowPhaseX,
+            ),
+            Math.sin(
+              this.elapsedTime * item.flowFrequencyY + item.flowPhaseY,
+            ) * this.config.verticalTurbulenceRatio,
+            Math.cos(
+              this.elapsedTime * item.flowFrequencyZ + item.flowPhaseZ,
+            ),
+          )
+          .multiplyScalar(acceleration * item.body.mass());
+
         const translation = item.body.translation();
         this.radialOffset
           .set(translation.x, translation.y, translation.z)
@@ -761,6 +952,24 @@ class ModelPhysics {
         );
       }
 
+      if (item.fallStarted) {
+        const driftPulse =
+          0.75 +
+          0.25 *
+            Math.sin(
+              this.elapsedTime * item.flowFrequencyX + item.flowPhaseX,
+            );
+        this.fallDriftForce
+          .copy(item.fallDriftDirection)
+          .multiplyScalar(
+            this.config.fallDriftAcceleration *
+              item.fallDriftStrength *
+              driftPulse *
+              item.body.mass(),
+          );
+        this.fluidForce.add(this.fallDriftForce);
+      }
+
       item.body.resetForces(false);
       item.body.addForce(this.fluidForce, false);
     }
@@ -770,17 +979,6 @@ class ModelPhysics {
     );
     if (this.vortexEnergy < 0.01) {
       this.vortexEnergy = 0;
-    }
-
-    if (
-      this.vortexCollisionsEnabled &&
-      this.vortexEnergy < this.config.vortexCollisionEnergy
-    ) {
-      for (const item of this.bodies) {
-        item.collider.setCollisionGroups(MOVING_COLLISION_GROUPS);
-        item.collider.setRestitution(this.config.restitution);
-      }
-      this.vortexCollisionsEnabled = false;
     }
   }
 
@@ -840,6 +1038,7 @@ class ModelPhysics {
       item.body.resetTorques(false);
       item.body.setLinvel({ x: 0, y: 0, z: 0 }, false);
       item.body.setAngvel({ x: 0, y: 0, z: 0 }, false);
+      item.body.setAngularDamping(this.config.angularDamping);
       item.body.sleep();
       item.settled = true;
     }
@@ -872,10 +1071,16 @@ class ModelPhysics {
         this.elapsedTime += this.config.fixedTimeStep;
         this.applyFluidMotion(this.config.fixedTimeStep);
       }
-      this.clampBodySpeeds();
       this.world.step();
       if (this.physicsActivated) {
-        this.updateSettledBodies(this.config.fixedTimeStep);
+        this.settleCheckAccumulator += this.config.fixedTimeStep;
+        if (
+          this.settleCheckAccumulator >= this.config.settleCheckInterval
+        ) {
+          const settleDeltaTime = this.settleCheckAccumulator;
+          this.settleCheckAccumulator = 0;
+          this.updateSettledBodies(settleDeltaTime);
+        }
       }
       this.clampBodySpeeds();
       this.accumulator -= this.config.fixedTimeStep;
@@ -904,12 +1109,22 @@ export async function createModelPhysics({ root, canvas, config }) {
 
   const movingNodes = [];
   const staticNodes = new Set();
+  const staticBaseColliderNodes = new Set();
 
   root.traverse((node) => {
-    if (STATIC_BASE_NAME_PATTERN.test(node.name)) {
+    const isStaticBaseCollider =
+      node.name === config.staticBaseColliderName;
+
+    if (
+      STATIC_BASE_NAME_PATTERN.test(node.name) ||
+      isStaticBaseCollider
+    ) {
       node.traverse((child) => {
         if (child.isMesh) {
           staticNodes.add(child);
+          if (isStaticBaseCollider) {
+            staticBaseColliderNodes.add(child);
+          }
         }
       });
     }
@@ -934,5 +1149,6 @@ export async function createModelPhysics({ root, canvas, config }) {
     sphereColliderNode,
     movingNodes,
     staticNodes: [...staticNodes],
+    staticBaseColliderNodes,
   });
 }

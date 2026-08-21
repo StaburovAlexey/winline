@@ -417,6 +417,13 @@ async function loadScene() {
     sphereCollider.visible = false;
   }
 
+  const staticBaseCollider = gltf.scene.getObjectByName(
+    appConfig.physics.staticBaseColliderName,
+  );
+  if (staticBaseCollider) {
+    staticBaseCollider.visible = false;
+  }
+
   configureModelMaterials(gltf.scene);
   applyModelConfig(gltf.scene);
   scene.add(gltf.scene);
