@@ -71,6 +71,16 @@ export const appConfig = {
       backgroundX: 10,
       backgroundY: 7,
     },
+    shake: {
+      enabled: true,
+      accelerationThreshold: 3.5,
+      requiredPeaks: 2,
+      peakWindowSeconds: 0.45,
+      peakCooldownSeconds: 0.35,
+      visualDuration: 0.28,
+      visualAmplitude: 0.018,
+      visualFrequency: 42,
+    },
   },
 
   materials: {
@@ -120,6 +130,11 @@ export const appConfig = {
     launchSpinSpeedMin: 2.2,
     launchSpinSpeedMax: 4.2,
     repeatLiftVelocity: 1.5,
+    shakeScatterImpulse: 0.72,
+    shakeLiftImpulse: 1.05,
+    shakeLiftAcceleration: 1.2,
+    shakeFlightDuration: 0.9,
+    shakeDirectionInfluence: 0.35,
     vortexCoreRatio: 0.35,
     vortexTangentialSpeed: 2.6,
     vortexFlowCoupling: 2.2,

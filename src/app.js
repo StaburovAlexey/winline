@@ -73,6 +73,9 @@ controls.enablePan = appConfig.controls.enablePan;
 controls.minDistance = appConfig.controls.minDistance;
 controls.maxDistance = appConfig.controls.maxDistance;
 
+let model = null;
+let modelPhysics = null;
+
 const parallax = createParallaxController({
   camera,
   target: controls.target,
@@ -81,10 +84,11 @@ const parallax = createParallaxController({
   permissionButton: motionPermissionButton,
   permissionStatusElement: motionPermissionStatusElement,
   config: appConfig.parallax,
+  onShake: ({ strength, direction }) => {
+    modelPhysics?.applyShake({ strength, direction });
+  },
 });
 
-let model = null;
-let modelPhysics = null;
 let failedAssetUrl = null;
 let renderInfoLogged = false;
 const clock = new THREE.Clock();
