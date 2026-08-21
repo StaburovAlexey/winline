@@ -8,9 +8,11 @@ const DEFAULT_SHAKE_CONFIG = {
   accelerationThreshold: 1.8,
   energyThreshold: 1.25,
   jerkThreshold: 18,
-  requiredPeaks: 3,
-  peakWindowSeconds: 0.55,
+  requiredPeaks: 5,
+  peakWindowSeconds: 1.25,
+  minimumShakeDurationSeconds: 1,
   minimumPeakGapSeconds: 0.055,
+  maximumPeakGapSeconds: 0.32,
   directionReversalDot: -0.05,
   gravityTimeConstantSeconds: 0.22,
   peakCooldownSeconds: 0.35,
@@ -447,6 +449,16 @@ export function createParallaxController({
       0.02,
       peakWindow,
     );
+    const maximumPeakGap = THREE.MathUtils.clamp(
+      shakeConfig.maximumPeakGapSeconds ?? 0.32,
+      minimumPeakGap,
+      peakWindow,
+    );
+    const minimumShakeDuration = THREE.MathUtils.clamp(
+      shakeConfig.minimumShakeDurationSeconds ?? 1,
+      0,
+      peakWindow,
+    );
     const reversalDot = THREE.MathUtils.clamp(
       shakeConfig.directionReversalDot ?? -0.05,
       -1,
@@ -479,6 +491,12 @@ export function createParallaxController({
       && now - shakeImpulseTimes[0] > peakWindowMilliseconds
     ) {
       shakeImpulseTimes.shift();
+    }
+    if (
+      shakeImpulseTimes.length > 0
+      && now - lastShakeImpulseTime > maximumPeakGap * 1000
+    ) {
+      shakeImpulseTimes = [];
     }
     if (shakeImpulseTimes.length === 0) {
       hasShakeImpulseDirection = false;
@@ -517,9 +535,14 @@ export function createParallaxController({
     const jerkRms = Math.sqrt(
       Math.max(shakeJerkEnergy, 0) / effectiveSampleDuration,
     );
+    const shakeDuration = shakeImpulseTimes.length > 1
+      ? (shakeImpulseTimes[shakeImpulseTimes.length - 1]
+          - shakeImpulseTimes[0]) / 1000
+      : 0;
 
     if (
       shakeImpulseTimes.length < Math.max(shakeConfig.requiredPeaks, 1)
+      || shakeDuration < minimumShakeDuration
       || accelerationRms < energyThreshold
       || jerkRms < jerkThreshold
       || now - lastShakeTime < Math.max(shakeConfig.peakCooldownSeconds, 0) * 1000
