@@ -137,12 +137,12 @@ export function createParallaxController({
     permissionStatusElement.textContent = "";
   }
 
-  function showPermissionButton(requesting = false) {
+  function showPermissionButton(requesting = false, label = "Гироскоп") {
     permissionButton.hidden = false;
     permissionButton.disabled = requesting;
     permissionButton.textContent = requesting
       ? "Запрашиваем разрешение…"
-      : "Гироскоп";
+      : label;
     permissionStatusElement.hidden = true;
     permissionStatusElement.textContent = "";
   }
@@ -286,8 +286,12 @@ export function createParallaxController({
     setInput(screenX, screenY);
   }
 
-  function triggerShake(strength, direction) {
-    if (!shakeConfig.enabled || !isActive() || isDesktopMode()) {
+  function triggerShake(strength, direction, force = false) {
+    if (
+      !shakeConfig.enabled
+      || disposed
+      || (!force && (!isActive() || isDesktopMode()))
+    ) {
       return;
     }
 
@@ -467,15 +471,6 @@ export function createParallaxController({
       return;
     }
 
-    if (orientationListening || motionListening) {
-      if (reducedMotion.matches && !motionOptIn) {
-        showPermissionButton();
-      } else {
-        hidePermissionUi();
-      }
-      return;
-    }
-
     const DeviceOrientation = window.DeviceOrientationEvent;
     const DeviceMotion = window.DeviceMotionEvent;
     const hasOrientation = typeof DeviceOrientation !== "undefined";
@@ -488,36 +483,59 @@ export function createParallaxController({
       return;
     }
 
-    const requiresPermission =
-      (hasOrientation
-        && typeof DeviceOrientation.requestPermission === "function"
-        && orientationPermissionState !== "granted")
-      || (shakeConfig.enabled
-        && hasMotion
-        && typeof DeviceMotion.requestPermission === "function"
-        && motionPermissionState !== "granted");
+    if (shakeConfig.enabled && !hasMotion) {
+      showPermissionError("Акселерометр недоступен в этом браузере.");
+      return;
+    }
 
-    if (requiresPermission) {
-      if (
-        orientationPermissionState === "requesting"
-        || motionPermissionState === "requesting"
-      ) {
-        showPermissionButton(true);
-      } else if (
-        orientationPermissionState === "denied"
-        && motionPermissionState === "denied"
-      ) {
-        showPermissionError(
-          "Доступ к датчикам движения отклонён. Разрешите его в настройках Safari и перезагрузите страницу.",
-        );
+    const needsOrientation = hasOrientation && !orientationListening;
+    const needsMotion = shakeConfig.enabled && !motionListening;
+    if (!needsOrientation && !needsMotion) {
+      if (reducedMotion.matches && !motionOptIn) {
+        showPermissionButton(false, "Включить движение");
       } else {
-        showPermissionButton();
+        hidePermissionUi();
       }
       return;
     }
 
+    const orientationRequestable =
+      needsOrientation
+      && typeof DeviceOrientation.requestPermission === "function";
+    const motionRequestable =
+      needsMotion
+      && typeof DeviceMotion.requestPermission === "function";
+    const orientationDenied =
+      needsOrientation && orientationPermissionState === "denied";
+    const motionDenied =
+      needsMotion && motionPermissionState === "denied";
+
+    if (orientationDenied || motionDenied) {
+      showPermissionError(
+        motionDenied
+          ? "Доступ к встряске отклонён. Разрешите Motion в настройках браузера и перезагрузите страницу."
+          : "Доступ к гироскопу отклонён. Разрешите движение в настройках браузера и перезагрузите страницу.",
+      );
+      return;
+    }
+
+    const permissionLabel = needsOrientation && needsMotion
+      ? "Разрешить датчики"
+      : needsMotion
+        ? "Разрешить встряску"
+        : "Разрешить гироскоп";
+    if (
+      orientationPermissionState === "requesting"
+      || motionPermissionState === "requesting"
+    ) {
+      showPermissionButton(true, permissionLabel);
+      return;
+    }
+
     if (reducedMotion.matches && !motionOptIn) {
-      showPermissionButton();
+      showPermissionButton(false, permissionLabel);
+    } else if (orientationRequestable || motionRequestable) {
+      showPermissionButton(false, permissionLabel);
     } else {
       enableSensors();
     }
@@ -529,8 +547,6 @@ export function createParallaxController({
       || isDesktopMode()
       || orientationPermissionState === "requesting"
       || motionPermissionState === "requesting"
-      || orientationListening
-      || motionListening
     ) {
       return;
     }
@@ -539,12 +555,15 @@ export function createParallaxController({
     const DeviceMotion = window.DeviceMotionEvent;
     const hasOrientation = typeof DeviceOrientation !== "undefined";
     const hasMotion = typeof DeviceMotion !== "undefined";
+    const needsOrientation = hasOrientation && !orientationListening;
+    const needsMotion = shakeConfig.enabled && hasMotion && !motionListening;
     const requestOrientation =
-      hasOrientation
+      needsOrientation
+      && orientationPermissionState !== "denied"
       && typeof DeviceOrientation.requestPermission === "function";
     const requestMotion =
-      shakeConfig.enabled
-      && hasMotion
+      needsMotion
+      && motionPermissionState !== "denied"
       && typeof DeviceMotion.requestPermission === "function";
 
     if (!hasOrientation && !hasMotion) {
@@ -552,8 +571,14 @@ export function createParallaxController({
       return;
     }
 
+    if (shakeConfig.enabled && !hasMotion) {
+      showPermissionError("Акселерометр недоступен в этом браузере.");
+      return;
+    }
+
     if (!requestOrientation && !requestMotion) {
       enableSensors();
+      configureSensors();
       return;
     }
 
@@ -571,10 +596,15 @@ export function createParallaxController({
     }
     if (requestMotion) {
       motionPermissionState = "requesting";
-    } else if (hasMotion) {
+    } else if (needsMotion) {
       motionPermissionState = "granted";
     }
-    showPermissionButton(true);
+    const permissionLabel = needsOrientation && needsMotion
+      ? "Разрешить датчики"
+      : needsMotion
+        ? "Разрешить встряску"
+        : "Разрешить гироскоп";
+    showPermissionButton(true, permissionLabel);
 
     const callPermissionRequest = (DeviceEvent) => {
       try {
@@ -615,13 +645,6 @@ export function createParallaxController({
 
   function handlePermissionButtonClick() {
     motionOptIn = true;
-
-    if (orientationListening || motionListening) {
-      backgroundElement.classList.add("is-motion-parallax-enabled");
-      hidePermissionUi();
-      return;
-    }
-
     requestSensorPermissions();
   }
 
@@ -689,6 +712,16 @@ export function createParallaxController({
   configureSensors();
 
   return {
+    triggerTestShake({ strength = 1, direction = { x: 1, y: 0 } } = {}) {
+      if (disposed) {
+        return;
+      }
+
+      motionOptIn = true;
+      backgroundElement.classList.add("is-motion-parallax-enabled");
+      triggerShake(strength, direction, true);
+    },
+
     captureBasePose() {
       if (disposed) {
         return;

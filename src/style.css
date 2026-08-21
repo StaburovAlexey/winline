@@ -142,6 +142,32 @@ body::before {
   line-height: 1.35;
 }
 
+#shake-test[hidden] {
+  display: none;
+}
+
+#shake-test {
+  position: fixed;
+  top: max(1rem, env(safe-area-inset-top));
+  right: max(1rem, env(safe-area-inset-right));
+  z-index: 4;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid rgb(110 190 255 / 60%);
+  border-radius: 999px;
+  color: #f4f8ff;
+  background: rgb(7 18 32 / 88%);
+  box-shadow: 0 0.75rem 2rem rgb(0 0 0 / 30%);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#shake-test:active {
+  transform: translateY(1px);
+}
+
 /* @media (max-width: 900px) {
   body {
     --background-focus-x: 50%;

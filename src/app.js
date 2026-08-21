@@ -16,6 +16,7 @@ document.body.style.setProperty(
 const sceneElement = document.querySelector("#scene");
 const statusElement = document.querySelector("#status");
 const motionPermissionButton = document.querySelector("#motion-permission");
+const shakeTestButton = document.querySelector("#shake-test");
 const motionPermissionStatusElement = document.querySelector(
   "#motion-permission-status",
 );
@@ -24,6 +25,7 @@ if (
   !(sceneElement instanceof HTMLElement)
   || !(statusElement instanceof HTMLElement)
   || !(motionPermissionButton instanceof HTMLButtonElement)
+  || !(shakeTestButton instanceof HTMLButtonElement)
   || !(motionPermissionStatusElement instanceof HTMLElement)
 ) {
   throw new Error("Scene root elements are missing");
@@ -84,10 +86,19 @@ const parallax = createParallaxController({
   permissionButton: motionPermissionButton,
   permissionStatusElement: motionPermissionStatusElement,
   config: appConfig.parallax,
-  onShake: ({ strength, direction }) => {
-    modelPhysics?.applyShake({ strength, direction });
+  onShake: ({ strength }) => {
+    modelPhysics?.applyShake({ strength });
   },
 });
+
+if (import.meta.env.DEV) {
+  shakeTestButton.hidden = false;
+  shakeTestButton.addEventListener("click", () => {
+    parallax.triggerTestShake({
+      strength: 1,
+    });
+  });
+}
 
 let failedAssetUrl = null;
 let renderInfoLogged = false;

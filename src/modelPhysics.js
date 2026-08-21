@@ -254,7 +254,6 @@ class ModelPhysics {
     this.accumulator = 0;
     this.elapsedTime = 0;
     this.vortexEnergy = 0;
-    this.shakeSequence = 0;
     this.settleCheckAccumulator = 0;
     this.physicsActivated = false;
     this.activeTouchPointerId = null;
@@ -272,11 +271,6 @@ class ModelPhysics {
     this.radialDirection = new THREE.Vector3();
     this.tangentDirection = new THREE.Vector3();
     this.fallDriftForce = new THREE.Vector3();
-    this.shakeDirection = new THREE.Vector3();
-    this.shakeRadialDirection = new THREE.Vector3();
-    this.shakeDeviceDirection = new THREE.Vector3();
-    this.shakeImpulse = new THREE.Vector3();
-    this.shakeSpinVelocity = new THREE.Vector3();
     this.upAxis = new THREE.Vector3(
       -config.gravity.x,
       -config.gravity.y,
@@ -400,8 +394,6 @@ class ModelPhysics {
       settled: false,
       settleTime: 0,
       fallStarted: false,
-      shakeFlightRemaining: 0,
-      shakeLiftStrength: 0,
       fallGravityScale: 1,
       fallLinearDamping: this.config.linearDamping,
       fallDriftStrength: 1,
@@ -491,13 +483,19 @@ class ModelPhysics {
     item.body.setGravityScale(1, false);
     item.body.setLinearDamping(this.config.linearDamping);
 
-    item.fallGravityScale = item.isBall
-      ? this.config.ballFallGravityScale
-      : THREE.MathUtils.lerp(
-          this.config.fallGravityScaleMin,
-          this.config.fallGravityScaleMax,
-          weightRatio,
-        );
+    const fallSpeedMultiplier = THREE.MathUtils.clamp(
+      this.config.fallSpeedMultiplier ?? 1,
+      0.05,
+      1,
+    );
+    item.fallGravityScale =
+      (item.isBall
+        ? this.config.ballFallGravityScale
+        : THREE.MathUtils.lerp(
+            this.config.fallGravityScaleMin,
+            this.config.fallGravityScaleMax,
+            weightRatio,
+          )) * fallSpeedMultiplier;
     item.fallLinearDamping = item.isBall
       ? this.config.ballFallLinearDamping
       : THREE.MathUtils.lerp(
@@ -677,122 +675,18 @@ class ModelPhysics {
     return true;
   }
 
-  applyShake({ strength = 1, direction = {} } = {}) {
-    const isInitialShake = this.activatePhysicsBodies();
+  applyShake({ strength = 1 } = {}) {
     const safeStrength = THREE.MathUtils.clamp(
       Number.isFinite(strength) ? strength : 1,
       0.35,
       1,
     );
-    const directionX = Number.isFinite(direction?.x) ? direction.x : 0;
-    const directionY = Number.isFinite(direction?.y) ? direction.y : 0;
-
-    this.shakeSequence += 1;
-    this.vortexEnergy = 1;
-    this.settleCheckAccumulator = 0;
-    this.shakeDeviceDirection.set(directionX, 0, directionY);
-    this.shakeDeviceDirection.addScaledVector(
-      this.upAxis,
-      -this.shakeDeviceDirection.dot(this.upAxis),
+    const shakeUpwardSpeed = THREE.MathUtils.lerp(
+      this.config.launchMinSpeed,
+      this.config.launchMaxSpeed,
+      safeStrength,
     );
-    if (this.shakeDeviceDirection.lengthSq() > Number.EPSILON) {
-      this.shakeDeviceDirection.normalize();
-    }
-
-    const scatterImpulse =
-      (this.config.shakeScatterImpulse ?? 0.72) * safeStrength;
-    const liftImpulse =
-      (this.config.shakeLiftImpulse ?? 1.05) * safeStrength;
-    const flightDuration = Math.max(
-      this.config.shakeFlightDuration ?? 0.9,
-      0,
-    );
-    const directionInfluence =
-      this.config.shakeDirectionInfluence ?? 0.35;
-
-    for (const item of this.bodies) {
-      const wasSettled = item.settled;
-      item.settled = false;
-      item.settleTime = 0;
-      item.shakeFlightRemaining = Math.max(
-        item.shakeFlightRemaining,
-        flightDuration,
-      );
-      item.shakeLiftStrength = Math.max(
-        item.shakeLiftStrength,
-        safeStrength,
-      );
-      item.body.wakeUp();
-
-      if (isInitialShake || wasSettled) {
-        this.resetFallState(item);
-      }
-
-      const translation = item.body.translation();
-      this.shakeRadialDirection
-        .set(translation.x, translation.y, translation.z)
-        .sub(this.vortexCenter)
-        .addScaledVector(
-          this.upAxis,
-          -this.shakeRadialDirection.dot(this.upAxis),
-        );
-      if (this.shakeRadialDirection.lengthSq() > Number.EPSILON) {
-        this.shakeRadialDirection.normalize();
-      }
-
-      this.shakeDirection.copy(
-        createDeterministicVector(
-          hashName(`${item.node.name}:shake:${this.shakeSequence}`),
-          0.23,
-        ),
-      );
-      this.shakeDirection.addScaledVector(
-        this.upAxis,
-        -this.shakeDirection.dot(this.upAxis),
-      );
-      if (this.shakeDirection.lengthSq() < Number.EPSILON) {
-        this.shakeDirection
-          .copy(item.launchDrift)
-          .addScaledVector(
-            this.upAxis,
-            -item.launchDrift.dot(this.upAxis),
-          );
-      }
-      this.shakeDirection.normalize();
-      if (this.shakeRadialDirection.lengthSq() > Number.EPSILON) {
-        this.shakeDirection.addScaledVector(
-          this.shakeRadialDirection,
-          0.35,
-        );
-      }
-      if (this.shakeDeviceDirection.lengthSq() > Number.EPSILON) {
-        this.shakeDirection.addScaledVector(
-          this.shakeDeviceDirection,
-          directionInfluence,
-        );
-      }
-      this.shakeDirection.normalize();
-
-      this.shakeImpulse
-        .copy(this.shakeDirection)
-        .multiplyScalar(scatterImpulse)
-        .addScaledVector(this.upAxis, liftImpulse);
-      item.body.applyImpulse(this.shakeImpulse, true);
-
-      const currentAngularVelocity = item.body.angvel();
-      const spinBoost = item.spinSpeed * 0.35 * safeStrength;
-      this.shakeSpinVelocity
-        .set(
-          currentAngularVelocity.x,
-          currentAngularVelocity.y,
-          currentAngularVelocity.z,
-        )
-        .addScaledVector(
-          item.spinAxis,
-          spinBoost * item.spinDirection,
-        );
-      item.body.setAngvel(this.shakeSpinVelocity, true);
-    }
+    this.launchBodies(shakeUpwardSpeed);
   }
 
   launchBodies(upwardSpeed) {
@@ -964,17 +858,6 @@ class ModelPhysics {
         continue;
       }
 
-      const shakeActive = item.shakeFlightRemaining > 0;
-      if (shakeActive) {
-        item.shakeFlightRemaining = Math.max(
-          item.shakeFlightRemaining - deltaTime,
-          0,
-        );
-        if (item.shakeFlightRemaining === 0) {
-          item.shakeLiftStrength = 0;
-        }
-      }
-
       const velocity = item.body.linvel();
       const verticalVelocity =
         velocity.x * this.upAxis.x +
@@ -987,7 +870,7 @@ class ModelPhysics {
         item.body.setLinearDamping(item.fallLinearDamping);
       }
 
-      const hasCustomForce = vortexActive || item.fallStarted || shakeActive;
+      const hasCustomForce = vortexActive || item.fallStarted;
       if (!hasCustomForce) {
         continue;
       }
@@ -1031,10 +914,14 @@ class ModelPhysics {
           0,
           1,
         );
+        this.radialDirection.set(0, 0, 0);
         if (radialDistance > Number.EPSILON) {
           this.radialDirection
             .copy(this.radialOffset)
             .multiplyScalar(1 / radialDistance);
+        }
+
+        if (this.radialDirection.lengthSq() > Number.EPSILON) {
           this.tangentDirection
             .crossVectors(this.upAxis, this.radialDirection)
             .normalize();
@@ -1043,12 +930,15 @@ class ModelPhysics {
             radialDistance <= coreRadius
               ? radialDistance / coreRadius
               : coreRadius / radialDistance;
+          const tangentialSpeed = this.config.vortexTangentialSpeed;
+          const vortexResponse = item.vortexResponse;
+          const swirlDirection = item.swirlDirection;
           const targetTangentialSpeed =
-            this.config.vortexTangentialSpeed *
+            tangentialSpeed *
             radialProfile *
             vortexEnergy *
-            item.vortexResponse *
-            item.swirlDirection;
+            vortexResponse *
+            swirlDirection;
           const velocity = item.body.linvel();
 
           this.bodyVelocity
@@ -1068,11 +958,10 @@ class ModelPhysics {
             .multiplyScalar(
               this.config.vortexFlowCoupling *
                 vortexEnergy *
-                item.vortexResponse *
+                vortexResponse *
                 item.body.mass(),
-            );
+          );
           this.fluidForce.add(this.flowVelocity);
-
           this.fluidForce.addScaledVector(
             this.radialDirection,
             -this.config.vortexInwardAcceleration *
@@ -1111,15 +1000,6 @@ class ModelPhysics {
               item.body.mass(),
           );
         this.fluidForce.add(this.fallDriftForce);
-      }
-
-      if (shakeActive) {
-        this.fluidForce.addScaledVector(
-          this.upAxis,
-          (this.config.shakeLiftAcceleration ?? 1.2) *
-            item.shakeLiftStrength *
-            item.body.mass(),
-        );
       }
 
       item.body.resetForces(false);
@@ -1192,8 +1072,6 @@ class ModelPhysics {
       item.body.setAngvel({ x: 0, y: 0, z: 0 }, false);
       item.body.setAngularDamping(this.config.angularDamping);
       item.body.sleep();
-      item.shakeFlightRemaining = 0;
-      item.shakeLiftStrength = 0;
       item.settled = true;
     }
   }
