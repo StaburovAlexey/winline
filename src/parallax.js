@@ -9,8 +9,11 @@ const DEFAULT_SHAKE_CONFIG = {
   hardAccelerationThreshold: 6.5,
   jerkThreshold: 20,
   aggregationWindowSeconds: 0.06,
-  directionLockSeconds: 0.1,
-  cardinalDirections: true,
+  minimumDirectionSampleSeconds: 0.02,
+  directionLockSeconds: 0.14,
+  minimumDirectionCoherence: 0.35,
+  cardinalDirections: false,
+  invertPlanarDirection: true,
   fixedStrength: 1,
   planarDetectionGain: 1.35,
   zVerticalGain: 1,
@@ -48,6 +51,16 @@ function getScreenOrientationAngle() {
   return Number.isFinite(window.orientation) ? window.orientation : 0;
 }
 
+function isAppleMobileDevice() {
+  const userAgent = navigator.userAgent ?? "";
+  const platform = navigator.userAgentData?.platform
+    ?? navigator.platform
+    ?? "";
+
+  return /iPad|iPhone|iPod/.test(userAgent)
+    || (platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
 export function createParallaxController({
   camera,
   target,
@@ -59,9 +72,15 @@ export function createParallaxController({
   onShake,
 }) {
   const enabled = config?.enabled !== false;
+  const configuredShake = config?.shake ?? {};
+  const platformProfiles = configuredShake.platformProfiles ?? {};
+  const platformShakeConfig = isAppleMobileDevice()
+    ? platformProfiles.ios
+    : platformProfiles.android;
   const shakeConfig = {
     ...DEFAULT_SHAKE_CONFIG,
-    ...(config?.shake ?? {}),
+    ...configuredShake,
+    ...(platformShakeConfig ?? {}),
   };
   const shakeCallback = typeof onShake === "function" ? onShake : () => {};
   const finePointer = window.matchMedia(FINE_POINTER_QUERY);
@@ -354,8 +373,11 @@ export function createParallaxController({
   }
 
   function resolveMotionDirection(acceleration) {
-    const deviceX = acceleration.x;
-    const deviceY = acceleration.y;
+    const planarDirectionSign = shakeConfig.invertPlanarDirection === true
+      ? -1
+      : 1;
+    const deviceX = acceleration.x * planarDirectionSign;
+    const deviceY = acceleration.y * planarDirectionSign;
     const angle = THREE.MathUtils.degToRad(getScreenOrientationAngle());
     const cosine = Math.cos(angle);
     const sine = Math.sin(angle);
@@ -426,7 +448,13 @@ export function createParallaxController({
       return;
     }
 
+    const directionSampleDuration = shakeDirectionWeight;
     const accumulatedDirectionLength = accumulatedShakeDirection.length();
+    const coherence = THREE.MathUtils.clamp(
+      accumulatedDirectionLength / directionSampleDuration,
+      0,
+      1,
+    );
 
     if (accumulatedDirectionLength > Number.EPSILON) {
       motionDirection
@@ -444,7 +472,20 @@ export function createParallaxController({
     initialShakeDirection.set(0, 0);
     accumulatedShakeDirection.set(0, 0);
 
-    if (motionDirection.lengthSq() === 0) {
+    const minimumSampleDuration = Math.max(
+      shakeConfig.minimumDirectionSampleSeconds ?? 0,
+      0,
+    );
+    const minimumCoherence = THREE.MathUtils.clamp(
+      shakeConfig.minimumDirectionCoherence ?? 0,
+      0,
+      1,
+    );
+    if (
+      directionSampleDuration < minimumSampleDuration
+      || coherence < minimumCoherence
+      || motionDirection.lengthSq() === 0
+    ) {
       return;
     }
 

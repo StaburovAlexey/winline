@@ -77,8 +77,6 @@ export const appConfig = {
       hardAccelerationThreshold: 6.5,
       jerkThreshold: 20,
       aggregationWindowSeconds: 0.06,
-      directionLockSeconds: 0.1,
-      cardinalDirections: true,
       fixedStrength: 1,
       planarDetectionGain: 1.35,
       zVerticalGain: 1,
@@ -87,6 +85,22 @@ export const appConfig = {
       visualDuration: 0.28,
       visualAmplitude: 0.018,
       visualFrequency: 42,
+      platformProfiles: {
+        android: {
+          cardinalDirections: false,
+          invertPlanarDirection: true,
+          minimumDirectionSampleSeconds: 0.02,
+          minimumDirectionCoherence: 0.35,
+          directionLockSeconds: 0.14,
+        },
+        ios: {
+          cardinalDirections: true,
+          invertPlanarDirection: false,
+          minimumDirectionSampleSeconds: 0,
+          minimumDirectionCoherence: 0,
+          directionLockSeconds: 0.1,
+        },
+      },
     },
   },
 
