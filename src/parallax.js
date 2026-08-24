@@ -7,9 +7,11 @@ const DEFAULT_SHAKE_CONFIG = {
   enabled: true,
   accelerationThreshold: 3.2,
   hardAccelerationThreshold: 6.5,
-  maximumAcceleration: 9,
   jerkThreshold: 20,
   aggregationWindowSeconds: 0.06,
+  directionLockSeconds: 0.1,
+  cardinalDirections: true,
+  fixedStrength: 1,
   planarDetectionGain: 1.35,
   zVerticalGain: 1,
   lateralLiftRatio: 0,
@@ -77,6 +79,7 @@ export function createParallaxController({
   const cameraShakeOffset = new THREE.Vector2();
   const shakeDirection = new THREE.Vector2(1, 0);
   const motionDirection = new THREE.Vector2();
+  const initialShakeDirection = new THREE.Vector2();
   const accumulatedShakeDirection = new THREE.Vector2();
   const motionAcceleration = new THREE.Vector3();
   const motionGravity = new THREE.Vector3();
@@ -95,9 +98,7 @@ export function createParallaxController({
   let lastMotionSampleTime = null;
   let shakeWindowStartTime = null;
   let shakeDirectionWeight = 0;
-  let shakeAccelerationEnergy = 0;
-  let shakeSampleDuration = 0;
-  let shakePeakMagnitude = 0;
+  let shakeDirectionLockUntil = 0;
   let shakeRemaining = 0;
   let shakeElapsed = 0;
   let shakeStrength = 0;
@@ -121,9 +122,8 @@ export function createParallaxController({
     previousMotionAcceleration.set(0, 0, 0);
     shakeWindowStartTime = null;
     shakeDirectionWeight = 0;
-    shakeAccelerationEnergy = 0;
-    shakeSampleDuration = 0;
-    shakePeakMagnitude = 0;
+    shakeDirectionLockUntil = 0;
+    initialShakeDirection.set(0, 0);
     accumulatedShakeDirection.set(0, 0);
   }
 
@@ -354,19 +354,38 @@ export function createParallaxController({
   }
 
   function resolveMotionDirection(acceleration) {
-    const deviceX = -acceleration.x;
-    const deviceY = -acceleration.y;
+    const deviceX = acceleration.x;
+    const deviceY = acceleration.y;
     const angle = THREE.MathUtils.degToRad(getScreenOrientationAngle());
     const cosine = Math.cos(angle);
     const sine = Math.sin(angle);
     const screenX = deviceX * cosine - deviceY * sine;
     const screenY = deviceX * sine + deviceY * cosine;
     const zVerticalGain = Math.max(shakeConfig.zVerticalGain, 0);
+    const depthY = -acceleration.z * zVerticalGain;
 
-    motionDirection.set(
-      screenX,
-      screenY - acceleration.z * zVerticalGain,
-    );
+    if (shakeConfig.cardinalDirections !== false) {
+      const planarDirectionGain = Math.max(
+        shakeConfig.planarDetectionGain,
+        0.1,
+      );
+      const horizontalMagnitude = Math.abs(screenX) * planarDirectionGain;
+      const planarVerticalMagnitude = Math.abs(screenY) * planarDirectionGain;
+      const depthVerticalMagnitude = Math.abs(depthY);
+
+      if (
+        horizontalMagnitude >= planarVerticalMagnitude
+        && horizontalMagnitude >= depthVerticalMagnitude
+      ) {
+        motionDirection.set(Math.sign(screenX), 0);
+      } else if (planarVerticalMagnitude >= depthVerticalMagnitude) {
+        motionDirection.set(0, Math.sign(screenY));
+      } else {
+        motionDirection.set(0, Math.sign(depthY));
+      }
+    } else {
+      motionDirection.set(screenX, screenY + depthY);
+    }
 
     return motionDirection.lengthSq() > Number.EPSILON;
   }
@@ -379,78 +398,66 @@ export function createParallaxController({
 
   function accumulateShakeSample(
     now,
-    detectionMagnitude,
     sampleInterval,
   ) {
     if (!resolveMotionDirection(motionAcceleration)) {
       return;
     }
 
-    const directionLength = motionDirection.length();
-    const directionWeight = detectionMagnitude * sampleInterval;
+    motionDirection.normalize();
     if (shakeWindowStartTime === null) {
       shakeWindowStartTime = now;
+      initialShakeDirection.copy(motionDirection);
+    } else if (motionDirection.dot(initialShakeDirection) <= 0) {
+      // A shake produces an acceleration impulse followed by an opposite
+      // braking impulse. Keep the onset direction instead of averaging both.
+      return;
     }
 
     accumulatedShakeDirection.addScaledVector(
       motionDirection,
-      directionWeight / directionLength,
+      sampleInterval,
     );
-    shakeDirectionWeight += directionWeight;
-    shakeAccelerationEnergy +=
-      detectionMagnitude * detectionMagnitude * sampleInterval;
-    shakeSampleDuration += sampleInterval;
-    shakePeakMagnitude = Math.max(shakePeakMagnitude, detectionMagnitude);
+    shakeDirectionWeight += sampleInterval;
   }
 
-  function flushShakeWindow(accelerationThreshold, maximumAcceleration) {
+  function flushShakeWindow(now) {
     if (shakeWindowStartTime === null || shakeDirectionWeight <= 0) {
       return;
     }
 
-    const effectiveDuration = Math.max(shakeSampleDuration, 1 / 240);
-    const accelerationRms = Math.sqrt(
-      shakeAccelerationEnergy / effectiveDuration,
-    );
-    const effectiveMagnitude = Math.max(
-      accelerationRms,
-      shakePeakMagnitude,
-    );
-    const normalizedStrength = THREE.MathUtils.clamp(
-      (effectiveMagnitude - accelerationThreshold) /
-        (maximumAcceleration - accelerationThreshold),
-      0,
-      1,
-    );
     const accumulatedDirectionLength = accumulatedShakeDirection.length();
-    const coherence = THREE.MathUtils.clamp(
-      accumulatedDirectionLength / shakeDirectionWeight,
-      0,
-      1,
-    );
 
     if (accumulatedDirectionLength > Number.EPSILON) {
       motionDirection
         .copy(accumulatedShakeDirection)
         .multiplyScalar(1 / accumulatedDirectionLength);
-      addLateralLift(motionDirection).normalize();
+      if (shakeConfig.cardinalDirections === false) {
+        addLateralLift(motionDirection).normalize();
+      }
     } else {
       motionDirection.set(0, 0);
     }
 
     shakeWindowStartTime = null;
     shakeDirectionWeight = 0;
-    shakeAccelerationEnergy = 0;
-    shakeSampleDuration = 0;
-    shakePeakMagnitude = 0;
+    initialShakeDirection.set(0, 0);
     accumulatedShakeDirection.set(0, 0);
 
-    triggerShake(
-      0.35 + normalizedStrength * 0.65,
-      motionDirection,
-      false,
-      coherence,
+    if (motionDirection.lengthSq() === 0) {
+      return;
+    }
+
+    const fixedStrength = THREE.MathUtils.clamp(
+      shakeConfig.fixedStrength ?? 1,
+      0.35,
+      1,
     );
+    shakeDirectionLockUntil = now + Math.max(
+      shakeConfig.directionLockSeconds ?? 0.1,
+      0,
+    ) * 1000;
+    triggerShake(fixedStrength, motionDirection, false, 1);
   }
 
   function handleDeviceMotion(event) {
@@ -478,13 +485,25 @@ export function createParallaxController({
     }
 
     const now = performance.now();
-    const accelerationSource = hasDirectAcceleration
-      ? "direct"
-      : "gravity";
-    if (motionAccelerationSource !== accelerationSource) {
-      motionAccelerationSource = accelerationSource;
+    if (
+      motionAccelerationSource === null
+      || (
+        motionAccelerationSource === "gravity"
+        && hasDirectAcceleration
+        && shakeWindowStartTime === null
+        && now >= shakeDirectionLockUntil
+      )
+    ) {
+      motionAccelerationSource = hasDirectAcceleration ? "direct" : "gravity";
       hasGravitySample = false;
       resetMotionSamples();
+    }
+
+    if (
+      (motionAccelerationSource === "direct" && !hasDirectAcceleration)
+      || (motionAccelerationSource === "gravity" && !hasGravityAcceleration)
+    ) {
+      return;
     }
 
     const reportedInterval =
@@ -502,12 +521,12 @@ export function createParallaxController({
     );
     lastMotionSampleTime = now;
 
-    const source = hasDirectAcceleration
+    const source = motionAccelerationSource === "direct"
       ? directAcceleration
       : gravityAcceleration;
     motionAcceleration.set(source.x, source.y, source.z);
 
-    if (hasDirectAcceleration) {
+    if (motionAccelerationSource === "direct") {
       hasGravitySample = false;
     } else {
       if (!hasGravitySample) {
@@ -553,17 +572,13 @@ export function createParallaxController({
       shakeConfig.hardAccelerationThreshold,
       accelerationThreshold,
     );
-    const maximumAcceleration = Math.max(
-      shakeConfig.maximumAcceleration,
-      accelerationThreshold + 0.1,
-    );
     const jerkThreshold = Math.max(shakeConfig.jerkThreshold, 0.1);
     const isStrongImpulse =
       detectionMagnitude >= hardAccelerationThreshold
       || (detectionMagnitude >= accelerationThreshold && jerk >= jerkThreshold);
 
-    if (isStrongImpulse) {
-      accumulateShakeSample(now, detectionMagnitude, sampleInterval);
+    if (isStrongImpulse && now >= shakeDirectionLockUntil) {
+      accumulateShakeSample(now, sampleInterval);
     }
 
     const aggregationWindowMilliseconds = Math.max(
@@ -574,7 +589,7 @@ export function createParallaxController({
       shakeWindowStartTime !== null
       && now - shakeWindowStartTime >= aggregationWindowMilliseconds
     ) {
-      flushShakeWindow(accelerationThreshold, maximumAcceleration);
+      flushShakeWindow(now);
     }
   }
 
@@ -886,7 +901,9 @@ export function createParallaxController({
 
       motionOptIn = true;
       backgroundElement.classList.add("is-motion-parallax-enabled");
-      addLateralLift(motionDirection).normalize();
+      if (shakeConfig.cardinalDirections === false) {
+        addLateralLift(motionDirection).normalize();
+      }
       triggerShake(strength, motionDirection, true);
     },
 

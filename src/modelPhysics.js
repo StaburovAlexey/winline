@@ -259,6 +259,11 @@ class ModelPhysics {
     this.vortexEnergy = 0;
     this.vortexLiftMultiplier = 1;
     this.vortexInwardMultiplier = 1;
+    this.shakePressureMultiplier = 0;
+    this.shakePressureUpdateAccumulator = 0;
+    this.shakePressureActive = false;
+    this.shakePressureCells = new Map();
+    this.shakePressureCellPool = [];
     this.settleCheckAccumulator = 0;
     this.physicsActivated = false;
     this.activeBodyCount = 0;
@@ -305,6 +310,9 @@ class ModelPhysics {
     this.radialOffset = new THREE.Vector3();
     this.radialDirection = new THREE.Vector3();
     this.tangentDirection = new THREE.Vector3();
+    this.pressureSpreadDirection = new THREE.Vector3();
+    this.pressureCenterDirection = new THREE.Vector3();
+    this.pressureTurbulenceDirection = new THREE.Vector3();
     this.fallDriftForce = new THREE.Vector3();
     this.upAxis = new THREE.Vector3(
       -config.gravity.x,
@@ -446,6 +454,9 @@ class ModelPhysics {
       fallLinearDamping: this.config.linearDamping,
       fallDriftStrength: 1,
       fallDriftDirection: new THREE.Vector3(1, 0, 0),
+      shakePressureStrength: 0,
+      shakePressureCellKey: 0,
+      shakePressureCenter: new THREE.Vector3(),
       responsiveness: THREE.MathUtils.lerp(
         this.config.launchResponsivenessMin,
         this.config.launchResponsivenessMax,
@@ -735,6 +746,7 @@ class ModelPhysics {
       allowZero = false,
       vortexLiftMultiplier = 1,
       vortexInwardMultiplier = 1,
+      shakePressureMultiplier = 0,
     } = {},
   ) {
     let pointerSpeed = Math.hypot(velocityX, velocityY);
@@ -760,6 +772,7 @@ class ModelPhysics {
     this.vortexEnergy = 1;
     this.vortexLiftMultiplier = Math.max(vortexLiftMultiplier, 0);
     this.vortexInwardMultiplier = Math.max(vortexInwardMultiplier, 0);
+    this.shakePressureMultiplier = Math.max(shakePressureMultiplier, 0);
     this.settleCheckAccumulator = 0;
 
     if (this.pendingPointerImpulse || this.bodies.length === 0) {
@@ -896,6 +909,8 @@ class ModelPhysics {
       this.config.shakeVortexInwardMultiplier ?? 0.35,
       0,
     );
+    this.shakePressureMultiplier =
+      this.config.shakePressureEnabled === false ? 0 : 1;
     this.settleCheckAccumulator = 0;
 
     if (this.pendingPointerImpulse) {
@@ -911,6 +926,8 @@ class ModelPhysics {
         vortexLiftMultiplier: this.config.shakeVortexLiftMultiplier ?? 0.25,
         vortexInwardMultiplier:
           this.config.shakeVortexInwardMultiplier ?? 0.35,
+        shakePressureMultiplier:
+          this.config.shakePressureEnabled === false ? 0 : 1,
       },
     );
   }
@@ -949,6 +966,8 @@ class ModelPhysics {
         vortexLiftMultiplier: this.config.shakeVortexLiftMultiplier ?? 0.25,
         vortexInwardMultiplier:
           this.config.shakeVortexInwardMultiplier ?? 0.35,
+        shakePressureMultiplier:
+          this.config.shakePressureEnabled === false ? 0 : 1,
       },
     );
   }
@@ -1132,6 +1151,7 @@ class ModelPhysics {
     this.vortexEnergy = 1;
     this.vortexLiftMultiplier = 1;
     this.vortexInwardMultiplier = 1;
+    this.shakePressureMultiplier = 0;
     this.settleCheckAccumulator = 0;
 
     const profile = this.createLaunchProfile(upwardSpeed);
@@ -1190,6 +1210,136 @@ class ModelPhysics {
     }
   }
 
+  getShakePressureCellKey(position, cellSize) {
+    const gridOffset = 32;
+    const gridAxisSize = 64;
+    const cellX = THREE.MathUtils.clamp(
+      Math.floor((position.x - this.vortexCenter.x) / cellSize) + gridOffset,
+      0,
+      gridAxisSize - 1,
+    );
+    const cellY = THREE.MathUtils.clamp(
+      Math.floor((position.y - this.vortexCenter.y) / cellSize) + gridOffset,
+      0,
+      gridAxisSize - 1,
+    );
+    const cellZ = THREE.MathUtils.clamp(
+      Math.floor((position.z - this.vortexCenter.z) / cellSize) + gridOffset,
+      0,
+      gridAxisSize - 1,
+    );
+
+    return (cellX * gridAxisSize + cellY) * gridAxisSize + cellZ;
+  }
+
+  clearShakePressure() {
+    for (const item of this.bodies) {
+      item.shakePressureStrength = 0;
+    }
+    this.shakePressureCells.clear();
+    this.shakePressureActive = false;
+  }
+
+  updateShakePressureGrid(deltaTime, vortexActive) {
+    const pressureEnabled =
+      this.config.shakePressureEnabled !== false
+      && this.shakePressureMultiplier > 0
+      && vortexActive;
+    if (!pressureEnabled) {
+      if (this.shakePressureActive) {
+        this.clearShakePressure();
+      }
+      this.shakePressureUpdateAccumulator = 0;
+      return;
+    }
+
+    this.shakePressureActive = true;
+    const updateInterval = Math.max(
+      this.config.shakePressureUpdateInterval ?? 1 / 30,
+      this.config.fixedTimeStep,
+    );
+    this.shakePressureUpdateAccumulator += Math.max(deltaTime, 0);
+    if (this.shakePressureUpdateAccumulator < updateInterval) {
+      return;
+    }
+    this.shakePressureUpdateAccumulator %= updateInterval;
+
+    const cellSize = Math.max(
+      this.vortexRadius *
+        Math.max(this.config.shakePressureCellSizeRatio ?? 0.22, 0.01),
+      Number.EPSILON,
+    );
+    const pressureCells = this.shakePressureCells;
+    pressureCells.clear();
+    let usedCellCount = 0;
+
+    for (const item of this.bodies) {
+      item.shakePressureStrength = 0;
+      if (!item.enabled || item.settled) {
+        continue;
+      }
+
+      item.body.translation(this.bodyTranslation);
+      const cellKey = this.getShakePressureCellKey(
+        this.bodyTranslation,
+        cellSize,
+      );
+      let cell = pressureCells.get(cellKey);
+      if (!cell) {
+        cell = this.shakePressureCellPool[usedCellCount];
+        if (!cell) {
+          cell = { count: 0, sumX: 0, sumY: 0, sumZ: 0 };
+          this.shakePressureCellPool.push(cell);
+        }
+        usedCellCount += 1;
+        cell.count = 0;
+        cell.sumX = 0;
+        cell.sumY = 0;
+        cell.sumZ = 0;
+        pressureCells.set(cellKey, cell);
+      }
+
+      cell.count += 1;
+      cell.sumX += this.bodyTranslation.x;
+      cell.sumY += this.bodyTranslation.y;
+      cell.sumZ += this.bodyTranslation.z;
+      item.shakePressureCellKey = cellKey;
+    }
+
+    const minimumBodies = Math.max(
+      Math.floor(this.config.shakePressureMinBodies ?? 4),
+      2,
+    );
+    const fullStrengthBodies = Math.max(
+      Math.floor(this.config.shakePressureFullStrengthBodies ?? 8),
+      minimumBodies,
+    );
+    const densityRange = fullStrengthBodies - minimumBodies + 1;
+
+    for (const item of this.bodies) {
+      if (!item.enabled || item.settled) {
+        continue;
+      }
+
+      const cell = pressureCells.get(item.shakePressureCellKey);
+      if (!cell || cell.count < minimumBodies) {
+        continue;
+      }
+
+      const inverseCount = 1 / cell.count;
+      item.shakePressureCenter.set(
+        cell.sumX * inverseCount,
+        cell.sumY * inverseCount,
+        cell.sumZ * inverseCount,
+      );
+      item.shakePressureStrength = THREE.MathUtils.clamp(
+        (cell.count - minimumBodies + 1) / densityRange,
+        0,
+        1,
+      );
+    }
+  }
+
   applyFluidMotion(deltaTime) {
     const vortexEnergy = this.vortexEnergy;
     const coreRadius = Math.max(
@@ -1197,6 +1347,21 @@ class ModelPhysics {
       Number.EPSILON,
     );
     const vortexActive = vortexEnergy > 0.01;
+    this.updateShakePressureGrid(deltaTime, vortexActive);
+    const shakePressureActive =
+      vortexActive && this.shakePressureMultiplier > 0;
+    const shakePressureAcceleration = Math.max(
+      this.config.shakePressureAcceleration ?? 2.2,
+      0,
+    );
+    const shakePressureCenteringRatio = Math.max(
+      this.config.shakePressureCenteringRatio ?? 0.45,
+      0,
+    );
+    const shakePressureTurbulenceRatio = Math.max(
+      this.config.shakePressureTurbulenceRatio ?? 0.3,
+      0,
+    );
 
     for (const item of this.bodies) {
       if (!item.enabled || item.settled) {
@@ -1327,6 +1492,58 @@ class ModelPhysics {
             vortexEnergy *
             item.mass,
         );
+
+        if (shakePressureActive && item.shakePressureStrength > 0) {
+          this.pressureSpreadDirection
+            .copy(this.bodyTranslation)
+            .sub(item.shakePressureCenter);
+          if (this.pressureSpreadDirection.lengthSq() <= Number.EPSILON) {
+            this.pressureSpreadDirection.copy(item.launchDrift);
+          }
+          this.pressureSpreadDirection.normalize();
+
+          this.pressureCenterDirection
+            .copy(this.vortexCenter)
+            .sub(this.bodyTranslation);
+          if (this.pressureCenterDirection.lengthSq() > Number.EPSILON) {
+            this.pressureCenterDirection.normalize();
+            this.pressureSpreadDirection.addScaledVector(
+              this.pressureCenterDirection,
+              shakePressureCenteringRatio,
+            );
+          }
+
+          this.pressureTurbulenceDirection.set(
+            Math.sin(
+              this.elapsedTime * item.flowFrequencyX + item.flowPhaseX,
+            ),
+            Math.sin(
+              this.elapsedTime * item.flowFrequencyY + item.flowPhaseY,
+            ),
+            Math.cos(
+              this.elapsedTime * item.flowFrequencyZ + item.flowPhaseZ,
+            ),
+          );
+          if (this.pressureTurbulenceDirection.lengthSq() > Number.EPSILON) {
+            this.pressureTurbulenceDirection.normalize();
+            this.pressureSpreadDirection.addScaledVector(
+              this.pressureTurbulenceDirection,
+              shakePressureTurbulenceRatio,
+            );
+          }
+
+          if (this.pressureSpreadDirection.lengthSq() > Number.EPSILON) {
+            this.pressureSpreadDirection.normalize();
+            this.fluidForce.addScaledVector(
+              this.pressureSpreadDirection,
+              shakePressureAcceleration *
+                item.shakePressureStrength *
+                vortexEnergy *
+                this.shakePressureMultiplier *
+                item.mass,
+            );
+          }
+        }
       }
 
       if (item.fallStarted) {
@@ -1541,6 +1758,8 @@ class ModelPhysics {
     this.eventController.abort();
     this.world.free();
     this.bodies.length = 0;
+    this.shakePressureCells.clear();
+    this.shakePressureCellPool.length = 0;
     this.pendingLaunch = null;
     this.pendingPointerImpulse = null;
     this.queuedShakeImpulse = null;
