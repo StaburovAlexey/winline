@@ -262,6 +262,7 @@ class ModelPhysics {
     this.activeBodyCount = 0;
     this.pendingLaunch = null;
     this.pendingPointerImpulse = null;
+    this.queuedShakeImpulse = null;
     this.interactionBatchCycle = 0;
     this.stepCostEstimateMs = 0;
     this.performanceSnapshot = {
@@ -821,21 +822,63 @@ class ModelPhysics {
       pendingPointerImpulse.nextIndex >= pendingPointerImpulse.items.length
     ) {
       this.pendingPointerImpulse = null;
+      this.applyQueuedShakeImpulse();
     }
   }
 
-  applyShake({ strength = 1 } = {}) {
+  applyShake({ strength = 1, direction = { x: 0, y: 1 } } = {}) {
+    if (this.bodies.length === 0) {
+      return;
+    }
+
     const safeStrength = THREE.MathUtils.clamp(
       Number.isFinite(strength) ? strength : 1,
       0.35,
       1,
     );
-    const shakeUpwardSpeed = THREE.MathUtils.lerp(
-      this.config.launchMinSpeed,
-      this.config.launchMaxSpeed,
-      safeStrength,
+    const directionX = Number.isFinite(direction?.x) ? direction.x : 0;
+    const directionY = Number.isFinite(direction?.y) ? direction.y : 1;
+    const directionLength = Math.hypot(directionX, directionY);
+    if (directionLength <= Number.EPSILON) {
+      return;
+    }
+
+    const normalizedStrength = (safeStrength - 0.35) / 0.65;
+    const pointerSpeed = THREE.MathUtils.lerp(
+      Math.min(
+        this.config.shakeMinPointerSpeed ?? 3.2,
+        this.config.maxPointerVelocity,
+      ),
+      this.config.maxPointerVelocity,
+      normalizedStrength,
     );
-    this.launchBodies(shakeUpwardSpeed);
+    const shakeImpulse = {
+      velocityX: directionX / directionLength * pointerSpeed,
+      velocityY: directionY / directionLength * pointerSpeed,
+    };
+
+    if (this.pendingPointerImpulse) {
+      this.queuedShakeImpulse = shakeImpulse;
+      return;
+    }
+
+    this.applyPointerVelocity(
+      shakeImpulse.velocityX,
+      shakeImpulse.velocityY,
+    );
+  }
+
+  applyQueuedShakeImpulse() {
+    const queuedShakeImpulse = this.queuedShakeImpulse;
+    if (!queuedShakeImpulse) {
+      return;
+    }
+
+    this.queuedShakeImpulse = null;
+    this.applyPointerVelocity(
+      queuedShakeImpulse.velocityX,
+      queuedShakeImpulse.velocityY,
+    );
   }
 
   createLaunchProfile(upwardSpeed) {
@@ -1424,6 +1467,7 @@ class ModelPhysics {
     this.bodies.length = 0;
     this.pendingLaunch = null;
     this.pendingPointerImpulse = null;
+    this.queuedShakeImpulse = null;
   }
 }
 

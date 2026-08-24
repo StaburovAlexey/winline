@@ -96,17 +96,44 @@ const parallax = createParallaxController({
   permissionButton: motionPermissionButton,
   permissionStatusElement: motionPermissionStatusElement,
   config: appConfig.parallax,
-  onShake: ({ strength }) => {
-    modelPhysics?.applyShake({ strength });
+  onShake: ({ strength, direction }) => {
+    modelPhysics?.applyShake({ strength, direction });
   },
 });
 
 if (import.meta.env.DEV) {
+  const shakeTestCases = [
+    {
+      label: "телефон вправо",
+      acceleration: { x: 4, y: 0, z: 0 },
+    },
+    {
+      label: "телефон влево",
+      acceleration: { x: -4, y: 0, z: 0 },
+    },
+    {
+      label: "телефон от себя",
+      acceleration: { x: 0, y: 0, z: -4 },
+    },
+    {
+      label: "телефон на себя",
+      acceleration: { x: 0, y: 0, z: 4 },
+    },
+  ];
+  let shakeTestIndex = 0;
+  const updateShakeTestLabel = () => {
+    shakeTestButton.textContent = `Тест: ${shakeTestCases[shakeTestIndex].label}`;
+  };
+
   shakeTestButton.hidden = false;
+  updateShakeTestLabel();
   shakeTestButton.addEventListener("click", () => {
-    parallax.triggerTestShake({
+    parallax.triggerTestMotion({
       strength: 1,
+      acceleration: shakeTestCases[shakeTestIndex].acceleration,
     });
+    shakeTestIndex = (shakeTestIndex + 1) % shakeTestCases.length;
+    updateShakeTestLabel();
   });
 }
 
