@@ -257,6 +257,8 @@ class ModelPhysics {
     this.accumulator = 0;
     this.elapsedTime = 0;
     this.vortexEnergy = 0;
+    this.vortexLiftMultiplier = 1;
+    this.vortexInwardMultiplier = 1;
     this.settleCheckAccumulator = 0;
     this.physicsActivated = false;
     this.activeBodyCount = 0;
@@ -726,9 +728,17 @@ class ModelPhysics {
       .normalize();
   }
 
-  applyPointerVelocity(velocityX, velocityY) {
+  applyPointerVelocity(
+    velocityX,
+    velocityY,
+    {
+      allowZero = false,
+      vortexLiftMultiplier = 1,
+      vortexInwardMultiplier = 1,
+    } = {},
+  ) {
     let pointerSpeed = Math.hypot(velocityX, velocityY);
-    if (pointerSpeed <= Number.EPSILON) {
+    if (pointerSpeed <= Number.EPSILON && !allowZero) {
       return;
     }
 
@@ -748,6 +758,8 @@ class ModelPhysics {
 
     this.physicsActivated = true;
     this.vortexEnergy = 1;
+    this.vortexLiftMultiplier = Math.max(vortexLiftMultiplier, 0);
+    this.vortexInwardMultiplier = Math.max(vortexInwardMultiplier, 0);
     this.settleCheckAccumulator = 0;
 
     if (this.pendingPointerImpulse || this.bodies.length === 0) {
@@ -826,7 +838,11 @@ class ModelPhysics {
     }
   }
 
-  applyShake({ strength = 1, direction = { x: 0, y: 1 } } = {}) {
+  applyShake({
+    strength = 1,
+    direction = { x: 0, y: 0 },
+    coherence = 1,
+  } = {}) {
     if (this.bodies.length === 0) {
       return;
     }
@@ -837,11 +853,13 @@ class ModelPhysics {
       1,
     );
     const directionX = Number.isFinite(direction?.x) ? direction.x : 0;
-    const directionY = Number.isFinite(direction?.y) ? direction.y : 1;
+    const directionY = Number.isFinite(direction?.y) ? direction.y : 0;
     const directionLength = Math.hypot(directionX, directionY);
-    if (directionLength <= Number.EPSILON) {
-      return;
-    }
+    const safeCoherence = THREE.MathUtils.clamp(
+      Number.isFinite(coherence) ? coherence : 1,
+      0,
+      1,
+    );
 
     const normalizedStrength = (safeStrength - 0.35) / 0.65;
     const pointerSpeed = THREE.MathUtils.lerp(
@@ -851,21 +869,69 @@ class ModelPhysics {
       ),
       this.config.maxPointerVelocity,
       normalizedStrength,
+    ) * safeCoherence;
+    const verticalVelocityScale = Math.max(
+      this.config.shakeVerticalVelocityScale ?? 0.6,
+      0,
     );
+    const normalizedDirectionX = directionLength > Number.EPSILON
+      ? directionX / directionLength
+      : 0;
+    const normalizedDirectionY = directionLength > Number.EPSILON
+      ? directionY / directionLength
+      : 0;
     const shakeImpulse = {
-      velocityX: directionX / directionLength * pointerSpeed,
-      velocityY: directionY / directionLength * pointerSpeed,
+      velocityX: normalizedDirectionX * pointerSpeed,
+      velocityY:
+        normalizedDirectionY * pointerSpeed * verticalVelocityScale,
     };
 
+    this.physicsActivated = true;
+    this.vortexEnergy = 1;
+    this.vortexLiftMultiplier = Math.max(
+      this.config.shakeVortexLiftMultiplier ?? 0.25,
+      0,
+    );
+    this.vortexInwardMultiplier = Math.max(
+      this.config.shakeVortexInwardMultiplier ?? 0.35,
+      0,
+    );
+    this.settleCheckAccumulator = 0;
+
     if (this.pendingPointerImpulse) {
-      this.queuedShakeImpulse = shakeImpulse;
+      this.accumulateQueuedShakeImpulse(shakeImpulse);
       return;
     }
 
     this.applyPointerVelocity(
       shakeImpulse.velocityX,
       shakeImpulse.velocityY,
+      {
+        allowZero: true,
+        vortexLiftMultiplier: this.config.shakeVortexLiftMultiplier ?? 0.25,
+        vortexInwardMultiplier:
+          this.config.shakeVortexInwardMultiplier ?? 0.35,
+      },
     );
+  }
+
+  accumulateQueuedShakeImpulse(shakeImpulse) {
+    if (!this.queuedShakeImpulse) {
+      this.queuedShakeImpulse = { ...shakeImpulse };
+      return;
+    }
+
+    this.queuedShakeImpulse.velocityX += shakeImpulse.velocityX;
+    this.queuedShakeImpulse.velocityY += shakeImpulse.velocityY;
+    const queuedSpeed = Math.hypot(
+      this.queuedShakeImpulse.velocityX,
+      this.queuedShakeImpulse.velocityY,
+    );
+    if (queuedSpeed > this.config.maxPointerVelocity) {
+      const scale = this.config.maxPointerVelocity / queuedSpeed;
+      this.queuedShakeImpulse.velocityX *= scale;
+      this.queuedShakeImpulse.velocityY *= scale;
+    }
   }
 
   applyQueuedShakeImpulse() {
@@ -878,6 +944,12 @@ class ModelPhysics {
     this.applyPointerVelocity(
       queuedShakeImpulse.velocityX,
       queuedShakeImpulse.velocityY,
+      {
+        allowZero: true,
+        vortexLiftMultiplier: this.config.shakeVortexLiftMultiplier ?? 0.25,
+        vortexInwardMultiplier:
+          this.config.shakeVortexInwardMultiplier ?? 0.35,
+      },
     );
   }
 
@@ -1058,6 +1130,8 @@ class ModelPhysics {
   launchBodies(upwardSpeed) {
     this.physicsActivated = true;
     this.vortexEnergy = 1;
+    this.vortexLiftMultiplier = 1;
+    this.vortexInwardMultiplier = 1;
     this.settleCheckAccumulator = 0;
 
     const profile = this.createLaunchProfile(upwardSpeed);
@@ -1234,6 +1308,7 @@ class ModelPhysics {
           this.fluidForce.addScaledVector(
             this.radialDirection,
             -this.config.vortexInwardAcceleration *
+              this.vortexInwardMultiplier *
               vortexEnergy *
               item.mass,
           );
@@ -1247,6 +1322,7 @@ class ModelPhysics {
         this.fluidForce.addScaledVector(
           this.upAxis,
           this.config.vortexLiftAcceleration *
+            this.vortexLiftMultiplier *
             liftRatio *
             vortexEnergy *
             item.mass,

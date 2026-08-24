@@ -7,14 +7,12 @@ const DEFAULT_SHAKE_CONFIG = {
   enabled: true,
   accelerationThreshold: 3.2,
   hardAccelerationThreshold: 6.5,
-  releaseAccelerationThreshold: 1.6,
   maximumAcceleration: 9,
   jerkThreshold: 20,
-  minimumImpulseGapSeconds: 0.07,
-  directionChangeDot: 0.2,
+  aggregationWindowSeconds: 0.06,
   planarDetectionGain: 1.35,
   zVerticalGain: 1,
-  lateralLiftRatio: 0.25,
+  lateralLiftRatio: 0,
   gravityTimeConstantSeconds: 0.22,
   visualDuration: 0.28,
   visualAmplitude: 0.018,
@@ -79,10 +77,10 @@ export function createParallaxController({
   const cameraShakeOffset = new THREE.Vector2();
   const shakeDirection = new THREE.Vector2(1, 0);
   const motionDirection = new THREE.Vector2();
+  const accumulatedShakeDirection = new THREE.Vector2();
   const motionAcceleration = new THREE.Vector3();
   const motionGravity = new THREE.Vector3();
   const previousMotionAcceleration = new THREE.Vector3();
-  const shakeImpulseDirection = new THREE.Vector3();
   let baseDistance = 1;
   let hasBasePose = false;
   let orientationBaseline = null;
@@ -93,11 +91,13 @@ export function createParallaxController({
   let motionOptIn = false;
   let hasGravitySample = false;
   let hasPreviousMotionSample = false;
-  let hasShakeImpulseDirection = false;
-  let shakeImpulseArmed = true;
   let motionAccelerationSource = null;
   let lastMotionSampleTime = null;
-  let lastShakeImpulseTime = -Infinity;
+  let shakeWindowStartTime = null;
+  let shakeDirectionWeight = 0;
+  let shakeAccelerationEnergy = 0;
+  let shakeSampleDuration = 0;
+  let shakePeakMagnitude = 0;
   let shakeRemaining = 0;
   let shakeElapsed = 0;
   let shakeStrength = 0;
@@ -117,12 +117,14 @@ export function createParallaxController({
 
   function resetMotionSamples() {
     hasPreviousMotionSample = false;
-    hasShakeImpulseDirection = false;
-    shakeImpulseArmed = true;
     lastMotionSampleTime = null;
-    lastShakeImpulseTime = -Infinity;
     previousMotionAcceleration.set(0, 0, 0);
-    shakeImpulseDirection.set(0, 0, 0);
+    shakeWindowStartTime = null;
+    shakeDirectionWeight = 0;
+    shakeAccelerationEnergy = 0;
+    shakeSampleDuration = 0;
+    shakePeakMagnitude = 0;
+    accumulatedShakeDirection.set(0, 0);
   }
 
   function resetShakeDetection() {
@@ -305,7 +307,12 @@ export function createParallaxController({
     setInput(screenX, screenY);
   }
 
-  function triggerShake(strength, direction, force = false) {
+  function triggerShake(
+    strength,
+    direction,
+    force = false,
+    coherence = 1,
+  ) {
     if (
       !shakeConfig.enabled
       || disposed
@@ -315,14 +322,14 @@ export function createParallaxController({
     }
 
     const safeStrength = THREE.MathUtils.clamp(strength, 0.35, 1);
+    const safeCoherence = THREE.MathUtils.clamp(coherence, 0, 1);
     const directionLength = Math.hypot(direction.x, direction.y);
+    let physicsDirectionX = 0;
+    let physicsDirectionY = 0;
     if (directionLength > Number.EPSILON) {
-      shakeDirection.set(
-        direction.x / directionLength,
-        direction.y / directionLength,
-      );
-    } else {
-      shakeDirection.set(1, 0);
+      physicsDirectionX = direction.x / directionLength;
+      physicsDirectionY = direction.y / directionLength;
+      shakeDirection.set(physicsDirectionX, physicsDirectionY);
     }
 
     shakeStrength = Math.max(shakeStrength, safeStrength);
@@ -336,9 +343,10 @@ export function createParallaxController({
       shakeCallback({
         strength: safeStrength,
         direction: {
-          x: shakeDirection.x,
-          y: shakeDirection.y,
+          x: physicsDirectionX,
+          y: physicsDirectionY,
         },
+        coherence: safeCoherence,
       });
     } catch (error) {
       console.error("Не удалось применить встряску физики", error);
@@ -354,16 +362,95 @@ export function createParallaxController({
     const screenX = deviceX * cosine - deviceY * sine;
     const screenY = deviceX * sine + deviceY * cosine;
     const zVerticalGain = Math.max(shakeConfig.zVerticalGain, 0);
-    const lateralLiftRatio = Math.max(shakeConfig.lateralLiftRatio, 0);
 
     motionDirection.set(
       screenX,
-      screenY
-        - acceleration.z * zVerticalGain
-        + Math.abs(screenX) * lateralLiftRatio,
+      screenY - acceleration.z * zVerticalGain,
     );
 
     return motionDirection.lengthSq() > Number.EPSILON;
+  }
+
+  function addLateralLift(direction) {
+    const lateralLiftRatio = Math.max(shakeConfig.lateralLiftRatio, 0);
+    direction.y += Math.abs(direction.x) * lateralLiftRatio;
+    return direction;
+  }
+
+  function accumulateShakeSample(
+    now,
+    detectionMagnitude,
+    sampleInterval,
+  ) {
+    if (!resolveMotionDirection(motionAcceleration)) {
+      return;
+    }
+
+    const directionLength = motionDirection.length();
+    const directionWeight = detectionMagnitude * sampleInterval;
+    if (shakeWindowStartTime === null) {
+      shakeWindowStartTime = now;
+    }
+
+    accumulatedShakeDirection.addScaledVector(
+      motionDirection,
+      directionWeight / directionLength,
+    );
+    shakeDirectionWeight += directionWeight;
+    shakeAccelerationEnergy +=
+      detectionMagnitude * detectionMagnitude * sampleInterval;
+    shakeSampleDuration += sampleInterval;
+    shakePeakMagnitude = Math.max(shakePeakMagnitude, detectionMagnitude);
+  }
+
+  function flushShakeWindow(accelerationThreshold, maximumAcceleration) {
+    if (shakeWindowStartTime === null || shakeDirectionWeight <= 0) {
+      return;
+    }
+
+    const effectiveDuration = Math.max(shakeSampleDuration, 1 / 240);
+    const accelerationRms = Math.sqrt(
+      shakeAccelerationEnergy / effectiveDuration,
+    );
+    const effectiveMagnitude = Math.max(
+      accelerationRms,
+      shakePeakMagnitude,
+    );
+    const normalizedStrength = THREE.MathUtils.clamp(
+      (effectiveMagnitude - accelerationThreshold) /
+        (maximumAcceleration - accelerationThreshold),
+      0,
+      1,
+    );
+    const accumulatedDirectionLength = accumulatedShakeDirection.length();
+    const coherence = THREE.MathUtils.clamp(
+      accumulatedDirectionLength / shakeDirectionWeight,
+      0,
+      1,
+    );
+
+    if (accumulatedDirectionLength > Number.EPSILON) {
+      motionDirection
+        .copy(accumulatedShakeDirection)
+        .multiplyScalar(1 / accumulatedDirectionLength);
+      addLateralLift(motionDirection).normalize();
+    } else {
+      motionDirection.set(0, 0);
+    }
+
+    shakeWindowStartTime = null;
+    shakeDirectionWeight = 0;
+    shakeAccelerationEnergy = 0;
+    shakeSampleDuration = 0;
+    shakePeakMagnitude = 0;
+    accumulatedShakeDirection.set(0, 0);
+
+    triggerShake(
+      0.35 + normalizedStrength * 0.65,
+      motionDirection,
+      false,
+      coherence,
+    );
   }
 
   function handleDeviceMotion(event) {
@@ -439,7 +526,6 @@ export function createParallaxController({
       motionAcceleration.sub(motionGravity);
     }
 
-    const magnitude = motionAcceleration.length();
     const planarMagnitude = Math.hypot(
       motionAcceleration.x,
       motionAcceleration.y,
@@ -467,71 +553,29 @@ export function createParallaxController({
       shakeConfig.hardAccelerationThreshold,
       accelerationThreshold,
     );
-    const releaseAccelerationThreshold = THREE.MathUtils.clamp(
-      shakeConfig.releaseAccelerationThreshold,
-      0,
-      accelerationThreshold,
-    );
     const maximumAcceleration = Math.max(
       shakeConfig.maximumAcceleration,
       accelerationThreshold + 0.1,
     );
     const jerkThreshold = Math.max(shakeConfig.jerkThreshold, 0.1);
-    const minimumImpulseGapMilliseconds = Math.max(
-      shakeConfig.minimumImpulseGapSeconds,
-      0.02,
-    ) * 1000;
-    const directionChangeDot = THREE.MathUtils.clamp(
-      shakeConfig.directionChangeDot,
-      -1,
-      1,
-    );
-
-    if (detectionMagnitude <= releaseAccelerationThreshold) {
-      shakeImpulseArmed = true;
-      return;
-    }
-
-    const inverseMagnitude = magnitude > Number.EPSILON
-      ? 1 / magnitude
-      : 0;
-    const directionDot = hasShakeImpulseDirection
-      ? (motionAcceleration.x * inverseMagnitude) * shakeImpulseDirection.x
-        + (motionAcceleration.y * inverseMagnitude) * shakeImpulseDirection.y
-        + (motionAcceleration.z * inverseMagnitude) * shakeImpulseDirection.z
-      : 1;
-    const directionChanged =
-      hasShakeImpulseDirection && directionDot <= directionChangeDot;
     const isStrongImpulse =
       detectionMagnitude >= hardAccelerationThreshold
       || (detectionMagnitude >= accelerationThreshold && jerk >= jerkThreshold);
 
+    if (isStrongImpulse) {
+      accumulateShakeSample(now, detectionMagnitude, sampleInterval);
+    }
+
+    const aggregationWindowMilliseconds = Math.max(
+      shakeConfig.aggregationWindowSeconds,
+      0.02,
+    ) * 1000;
     if (
-      !isStrongImpulse
-      || (!shakeImpulseArmed && !directionChanged)
-      || now - lastShakeImpulseTime < minimumImpulseGapMilliseconds
+      shakeWindowStartTime !== null
+      && now - shakeWindowStartTime >= aggregationWindowMilliseconds
     ) {
-      return;
+      flushShakeWindow(accelerationThreshold, maximumAcceleration);
     }
-
-    if (!resolveMotionDirection(motionAcceleration)) {
-      return;
-    }
-
-    const normalizedStrength = THREE.MathUtils.clamp(
-      (detectionMagnitude - accelerationThreshold) /
-        (maximumAcceleration - accelerationThreshold),
-      0,
-      1,
-    );
-
-    lastShakeImpulseTime = now;
-    shakeImpulseArmed = false;
-    shakeImpulseDirection
-      .copy(motionAcceleration)
-      .multiplyScalar(inverseMagnitude);
-    hasShakeImpulseDirection = true;
-    triggerShake(0.35 + normalizedStrength * 0.65, motionDirection);
   }
 
   function enableSensors() {
@@ -842,6 +886,7 @@ export function createParallaxController({
 
       motionOptIn = true;
       backgroundElement.classList.add("is-motion-parallax-enabled");
+      addLateralLift(motionDirection).normalize();
       triggerShake(strength, motionDirection, true);
     },
 

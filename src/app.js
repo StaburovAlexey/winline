@@ -96,8 +96,8 @@ const parallax = createParallaxController({
   permissionButton: motionPermissionButton,
   permissionStatusElement: motionPermissionStatusElement,
   config: appConfig.parallax,
-  onShake: ({ strength, direction }) => {
-    modelPhysics?.applyShake({ strength, direction });
+  onShake: ({ strength, direction, coherence }) => {
+    modelPhysics?.applyShake({ strength, direction, coherence });
   },
 });
 
