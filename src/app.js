@@ -467,6 +467,7 @@ async function loadScene() {
     try {
       modelPhysics = await createModelPhysics({
         root: model,
+        camera,
         canvas: renderer.domElement,
         config: appConfig.physics,
       });

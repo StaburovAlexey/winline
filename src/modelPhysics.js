@@ -237,6 +237,7 @@ function createBallCollider(node, config) {
 class ModelPhysics {
   constructor({
     root,
+    camera,
     canvas,
     config,
     sphereColliderNode,
@@ -244,6 +245,8 @@ class ModelPhysics {
     staticNodes,
     staticBaseColliderNodes = new Set(),
   }) {
+    this.root = root;
+    this.camera = camera;
     this.canvas = canvas;
     this.config = config;
     this.world = new RAPIER.World(config.gravity);
@@ -258,7 +261,8 @@ class ModelPhysics {
     this.physicsActivated = false;
     this.activeBodyCount = 0;
     this.pendingLaunch = null;
-    this.launchBatchCycle = 0;
+    this.pendingPointerImpulse = null;
+    this.interactionBatchCycle = 0;
     this.stepCostEstimateMs = 0;
     this.performanceSnapshot = {
       activeBodies: 0,
@@ -269,11 +273,23 @@ class ModelPhysics {
     };
     this.activeTouchPointerId = null;
     this.lastPointer = null;
-    this.gestureArmed = true;
-    this.gestureUpwardDistance = 0;
-    this.gestureWindowStart = 0;
+    this.rawPointerVelocity = new THREE.Vector2();
+    this.smoothedPointerVelocity = new THREE.Vector2();
     this.eventController = new AbortController();
 
+    this.cameraRight = new THREE.Vector3();
+    this.cameraUp = new THREE.Vector3();
+    this.cameraForward = new THREE.Vector3();
+    this.localCameraRight = new THREE.Vector3();
+    this.localCameraUp = new THREE.Vector3();
+    this.localCameraForward = new THREE.Vector3();
+    this.rootWorldQuaternion = new THREE.Quaternion();
+    this.pointerPlanarVelocity = new THREE.Vector3();
+    this.pointerForwardDirection = new THREE.Vector3();
+    this.pointerSpeed = 0;
+    this.bodyPointerVelocity = new THREE.Vector3();
+    this.pointerImpulse = new THREE.Vector3();
+    this.pointerTorqueImpulse = new THREE.Vector3();
     this.bodyLaunchVelocity = new THREE.Vector3();
     this.bodyLaunchAngularVelocity = new THREE.Vector3();
     this.bodyTranslation = new THREE.Vector3();
@@ -377,6 +393,8 @@ class ModelPhysics {
     const collider = this.world.createCollider(colliderData.descriptor, body);
 
     const seed = hashName(node.name);
+    const rawPointerDepthResponse =
+      hashName(`${node.name}:pointer-depth`) * 2 - 1;
     const vortexGroup = hashName(`${node.name}:vortex-group`);
     const usesPrimaryVortex =
       vortexGroup < this.config.primaryVortexFraction;
@@ -410,6 +428,14 @@ class ModelPhysics {
       enabled: false,
       launchOrder: hashName(`${node.name}:launch-order`),
       mass: colliderData.mass,
+      pointerResponsiveness: 0.2 + seed * 1.3,
+      pointerDepthResponse:
+        Math.sign(rawPointerDepthResponse || 1) *
+        (0.35 + Math.abs(rawPointerDepthResponse) * 0.65),
+      pointerTorqueLever: createDeterministicVector(
+        seed,
+        0.37,
+      ).multiplyScalar(colliderData.boundaryRadius),
       settled: false,
       settleTime: 0,
       fallStarted: false,
@@ -506,7 +532,7 @@ class ModelPhysics {
     const fallSpeedMultiplier = THREE.MathUtils.clamp(
       this.config.fallSpeedMultiplier ?? 1,
       0.05,
-      1,
+      2,
     );
     item.fallGravityScale =
       (item.isBall
@@ -545,7 +571,7 @@ class ModelPhysics {
 
     this.canvas.addEventListener("pointerenter", (event) => {
       if (event.pointerType === "mouse") {
-        this.resetGesture(event.timeStamp, true);
+        this.resetPointerSmoothing();
         this.rememberPointer(event);
       }
     }, options);
@@ -557,7 +583,7 @@ class ModelPhysics {
 
       this.activeTouchPointerId = event.pointerId;
       this.canvas.setPointerCapture(event.pointerId);
-      this.resetGesture(event.timeStamp, true);
+      this.resetPointerSmoothing();
       this.rememberPointer(event);
     }, options);
 
@@ -579,7 +605,7 @@ class ModelPhysics {
     this.canvas.addEventListener("pointerleave", (event) => {
       if (event.pointerType === "mouse") {
         this.lastPointer = null;
-        this.resetGesture(event.timeStamp, true);
+        this.resetPointerSmoothing();
       }
     }, options);
 
@@ -594,7 +620,7 @@ class ModelPhysics {
 
       this.activeTouchPointerId = null;
       this.lastPointer = null;
-      this.resetGesture(event.timeStamp, true);
+      this.resetPointerSmoothing();
     };
 
     this.canvas.addEventListener("pointerup", releasePointer, options);
@@ -609,13 +635,9 @@ class ModelPhysics {
     };
   }
 
-  resetGesture(timeStamp, rearm = false) {
-    this.gestureUpwardDistance = 0;
-    this.gestureWindowStart = timeStamp;
-
-    if (rearm) {
-      this.gestureArmed = true;
-    }
+  resetPointerSmoothing() {
+    this.rawPointerVelocity.set(0, 0);
+    this.smoothedPointerVelocity.set(0, 0);
   }
 
   handlePointerMove(event) {
@@ -629,53 +651,176 @@ class ModelPhysics {
 
   processPointerSample(event) {
     if (!this.lastPointer) {
-      this.resetGesture(event.timeStamp, true);
+      this.resetPointerSmoothing();
       this.rememberPointer(event);
       return;
     }
 
     const deltaTime = (event.timeStamp - this.lastPointer.time) / 1000;
-    const maximumDeltaTime = this.config.launchWindowSeconds;
+    const maximumDeltaTime = Math.max(
+      this.config.pointerMaxDeltaTime ?? 0.12,
+      MIN_POINTER_DELTA_TIME,
+    );
 
     if (deltaTime <= 0 || deltaTime > maximumDeltaTime) {
-      this.resetGesture(event.timeStamp, true);
+      this.resetPointerSmoothing();
       this.rememberPointer(event);
       return;
     }
 
     const rect = this.canvas.getBoundingClientRect();
     const safeDeltaTime = Math.max(deltaTime, MIN_POINTER_DELTA_TIME);
-    const upwardDistance =
-      (this.lastPointer.y - event.clientY) / Math.max(rect.height, 1);
+    const velocityX =
+      (event.clientX - this.lastPointer.x) /
+      Math.max(rect.width, 1) /
+      safeDeltaTime;
+    const velocityY =
+      -(event.clientY - this.lastPointer.y) /
+      Math.max(rect.height, 1) /
+      safeDeltaTime;
+    const pointerSmoothing = THREE.MathUtils.clamp(
+      this.config.pointerSmoothing,
+      0,
+      1,
+    );
+    const smoothingAlpha =
+      1 -
+      Math.pow(
+        1 - pointerSmoothing,
+        safeDeltaTime / this.config.fixedTimeStep,
+      );
+
+    this.rawPointerVelocity.set(velocityX, velocityY);
+    this.smoothedPointerVelocity.lerp(
+      this.rawPointerVelocity,
+      smoothingAlpha,
+    );
 
     this.rememberPointer(event);
+    this.applyPointerVelocity(
+      this.smoothedPointerVelocity.x,
+      this.smoothedPointerVelocity.y,
+    );
+  }
 
-    if (upwardDistance <= 0) {
-      this.resetGesture(event.timeStamp, true);
+  updateCameraAxes() {
+    this.camera.updateMatrixWorld();
+    this.root.updateMatrixWorld();
+
+    this.cameraRight.setFromMatrixColumn(this.camera.matrixWorld, 0);
+    this.cameraUp.setFromMatrixColumn(this.camera.matrixWorld, 1);
+    this.camera.getWorldDirection(this.cameraForward);
+    this.root.getWorldQuaternion(this.rootWorldQuaternion).invert();
+    this.localCameraRight
+      .copy(this.cameraRight)
+      .applyQuaternion(this.rootWorldQuaternion)
+      .normalize();
+    this.localCameraUp
+      .copy(this.cameraUp)
+      .applyQuaternion(this.rootWorldQuaternion)
+      .normalize();
+    this.localCameraForward
+      .copy(this.cameraForward)
+      .applyQuaternion(this.rootWorldQuaternion)
+      .normalize();
+  }
+
+  applyPointerVelocity(velocityX, velocityY) {
+    let pointerSpeed = Math.hypot(velocityX, velocityY);
+    if (pointerSpeed <= Number.EPSILON) {
       return;
     }
 
-    const windowDuration =
-      (event.timeStamp - this.gestureWindowStart) / 1000;
-    if (windowDuration > this.config.launchWindowSeconds) {
-      this.resetGesture(event.timeStamp);
+    let pointerScale = 1;
+    if (pointerSpeed > this.config.maxPointerVelocity) {
+      pointerScale = this.config.maxPointerVelocity / pointerSpeed;
+      pointerSpeed = this.config.maxPointerVelocity;
     }
 
-    this.gestureUpwardDistance += upwardDistance;
-    const gestureDuration = Math.max(
-      (event.timeStamp - this.gestureWindowStart) / 1000,
-      safeDeltaTime,
-    );
-    const upwardSpeed = this.gestureUpwardDistance / gestureDuration;
+    this.updateCameraAxes();
+    this.pointerPlanarVelocity
+      .copy(this.localCameraRight)
+      .multiplyScalar(velocityX * pointerScale)
+      .addScaledVector(this.localCameraUp, velocityY * pointerScale);
+    this.pointerForwardDirection.copy(this.localCameraForward);
+    this.pointerSpeed = pointerSpeed;
 
-    if (
-      this.gestureArmed &&
-      upwardSpeed >= this.config.launchMinSpeed &&
-      this.gestureUpwardDistance >= this.config.launchMinDistance
+    this.physicsActivated = true;
+    this.vortexEnergy = 1;
+    this.settleCheckAccumulator = 0;
+
+    if (this.pendingPointerImpulse || this.bodies.length === 0) {
+      return;
+    }
+
+    this.pendingPointerImpulse = this.createPendingBodyBatch();
+  }
+
+  applyPointerImpulseToBody(item) {
+    const wasActive = item.enabled && !item.settled;
+    const shouldResetFlight = !item.enabled || item.settled;
+
+    if (!item.enabled) {
+      item.body.setEnabled(true);
+      item.enabled = true;
+    }
+
+    item.settled = false;
+    item.settleTime = 0;
+    if (!wasActive) {
+      this.activeBodyCount += 1;
+    }
+    if (shouldResetFlight) {
+      this.resetFallState(item);
+    }
+
+    this.bodyPointerVelocity
+      .copy(this.pointerPlanarVelocity)
+      .multiplyScalar(
+        this.config.pointerVelocityGain * item.pointerResponsiveness,
+      )
+      .addScaledVector(
+        this.pointerForwardDirection,
+        this.pointerSpeed *
+          this.config.pointerDepthGain *
+          item.pointerDepthResponse,
+      );
+    this.pointerImpulse
+      .copy(this.bodyPointerVelocity)
+      .multiplyScalar(item.mass);
+    item.body.applyImpulse(this.pointerImpulse, true);
+
+    this.pointerTorqueImpulse
+      .copy(item.pointerTorqueLever)
+      .cross(this.pointerImpulse)
+      .multiplyScalar(this.config.pointerTorqueGain);
+    item.body.applyTorqueImpulse(this.pointerTorqueImpulse, true);
+  }
+
+  processPendingPointerImpulseBatch() {
+    const pendingPointerImpulse = this.pendingPointerImpulse;
+    if (!pendingPointerImpulse) {
+      return;
+    }
+
+    const endIndex = Math.min(
+      pendingPointerImpulse.nextIndex + pendingPointerImpulse.batchSize,
+      pendingPointerImpulse.items.length,
+    );
+
+    for (
+      let index = pendingPointerImpulse.nextIndex;
+      index < endIndex;
+      index += 1
     ) {
-      this.gestureArmed = false;
-      this.gestureUpwardDistance = 0;
-      this.launchBodies(upwardSpeed);
+      this.applyPointerImpulseToBody(pendingPointerImpulse.items[index]);
+    }
+
+    pendingPointerImpulse.nextIndex = endIndex;
+    if (
+      pendingPointerImpulse.nextIndex >= pendingPointerImpulse.items.length
+    ) {
+      this.pendingPointerImpulse = null;
     }
   }
 
@@ -814,6 +959,32 @@ class ModelPhysics {
     item.body.setAngvel(this.bodyLaunchAngularVelocity, false);
   }
 
+  createPendingBodyBatch() {
+    const batchFrames = Math.max(
+      Math.floor(this.config.launchBatchFrames ?? 1),
+      1,
+    );
+    const items = [...this.bodies].sort(
+      (left, right) => left.launchOrder - right.launchOrder,
+    );
+    const batchSize = Math.ceil(items.length / batchFrames);
+    const startIndex =
+      (this.interactionBatchCycle * batchSize) % items.length;
+
+    if (startIndex > 0) {
+      items.push(...items.splice(0, startIndex));
+    }
+
+    this.interactionBatchCycle =
+      (this.interactionBatchCycle + 1) % batchFrames;
+
+    return {
+      batchSize,
+      items,
+      nextIndex: 0,
+    };
+  }
+
   processPendingLaunchBatch() {
     const pendingLaunch = this.pendingLaunch;
     if (!pendingLaunch) {
@@ -861,27 +1032,8 @@ class ModelPhysics {
       return;
     }
 
-    const launchBatchFrames = Math.max(
-      Math.floor(this.config.launchBatchFrames ?? 1),
-      1,
-    );
-    const launchItems = [...this.bodies].sort(
-      (left, right) => left.launchOrder - right.launchOrder,
-    );
-    const batchSize = Math.ceil(launchItems.length / launchBatchFrames);
-    const startIndex =
-      (this.launchBatchCycle * batchSize) % launchItems.length;
-
-    if (startIndex > 0) {
-      launchItems.push(...launchItems.splice(0, startIndex));
-    }
-
-    this.launchBatchCycle =
-      (this.launchBatchCycle + 1) % launchBatchFrames;
     this.pendingLaunch = {
-      batchSize,
-      items: launchItems,
-      nextIndex: 0,
+      ...this.createPendingBodyBatch(),
       profile: strongestProfile,
     };
   }
@@ -1167,10 +1319,20 @@ class ModelPhysics {
     return this.performanceSnapshot;
   }
 
-  update(deltaTime) {
-    const queuedBodies = this.pendingLaunch
+  getQueuedBodyCount() {
+    const queuedLaunchBodies = this.pendingLaunch
       ? this.pendingLaunch.items.length - this.pendingLaunch.nextIndex
       : 0;
+    const queuedPointerBodies = this.pendingPointerImpulse
+      ? this.pendingPointerImpulse.items.length -
+          this.pendingPointerImpulse.nextIndex
+      : 0;
+
+    return queuedLaunchBodies + queuedPointerBodies;
+  }
+
+  update(deltaTime) {
+    const queuedBodies = this.getQueuedBodyCount();
     if (
       !this.physicsActivated ||
       (this.activeBodyCount === 0 && queuedBodies === 0)
@@ -1191,8 +1353,12 @@ class ModelPhysics {
     this.accumulator = Math.min(accumulatedTime, maximumAccumulatedTime);
 
     const updateStartTime = performance.now();
-    if (this.pendingLaunch && this.accumulator >= fixedTimeStep) {
-      this.processPendingLaunchBatch();
+    if (this.accumulator >= fixedTimeStep) {
+      if (this.pendingLaunch) {
+        this.processPendingLaunchBatch();
+      } else if (this.pendingPointerImpulse) {
+        this.processPendingPointerImpulseBatch();
+      }
     }
 
     let substeps = 0;
@@ -1247,9 +1413,7 @@ class ModelPhysics {
     this.syncNodes();
     this.performanceSnapshot.activeBodies = this.activeBodyCount;
     this.performanceSnapshot.droppedTimeMs = droppedTime * 1000;
-    this.performanceSnapshot.queuedBodies = this.pendingLaunch
-      ? this.pendingLaunch.items.length - this.pendingLaunch.nextIndex
-      : 0;
+    this.performanceSnapshot.queuedBodies = this.getQueuedBodyCount();
     this.performanceSnapshot.substeps = substeps;
     this.performanceSnapshot.worldStepMs = worldStepTime;
   }
@@ -1259,10 +1423,11 @@ class ModelPhysics {
     this.world.free();
     this.bodies.length = 0;
     this.pendingLaunch = null;
+    this.pendingPointerImpulse = null;
   }
 }
 
-export async function createModelPhysics({ root, canvas, config }) {
+export async function createModelPhysics({ root, camera, canvas, config }) {
   await initializeRapier();
 
   const sphereColliderNode = root.getObjectByName(config.sphereColliderName);
@@ -1309,6 +1474,7 @@ export async function createModelPhysics({ root, canvas, config }) {
 
   return new ModelPhysics({
     root,
+    camera,
     canvas,
     config,
     sphereColliderNode,

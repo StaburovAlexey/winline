@@ -125,9 +125,14 @@ export const appConfig = {
     linearDamping: 2,
     angularDamping: 2.5,
     flightAngularDamping: 0.65,
+    //скорость полета за свайпом
+    pointerVelocityGain: 0.4,
+    pointerSmoothing: 1,
+    pointerDepthGain: 0,
+    pointerTorqueGain: 0.45,
+    maxPointerVelocity: 6,
+    pointerMaxDeltaTime: 0.12,
     launchMinSpeed: 1.25,
-    launchMinDistance: 0.025,
-    launchWindowSeconds: 0.1,
     launchMaxSpeed: 6,
     launchVelocityMin: 3.2,
     launchVelocityMax: 4,
@@ -154,8 +159,8 @@ export const appConfig = {
     turbulenceFrequencyMin: 0.45,
     turbulenceFrequencyMax: 0.9,
     verticalTurbulenceRatio: 0.08,
-    // 0.5 makes the downward acceleration twice as gentle without changing launch.
-    fallSpeedMultiplier: 0.5,
+    // скорость падения
+    fallSpeedMultiplier: 1.5,
     fallGravityScaleMin: 0.55,
     fallGravityScaleMax: 1.45,
     ballFallGravityScale: 1.45,
