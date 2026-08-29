@@ -17,7 +17,7 @@ document.body.style.setProperty(
 const sceneElement = document.querySelector("#scene");
 const startScreenElement = document.querySelector("#start-screen");
 const startButton = document.querySelector("#start-button");
-const statusElement = document.querySelector("#status");
+// const statusElement = document.querySelector("#status");
 const motionPermissionButton = document.querySelector("#motion-permission");
 const shakeTestButton = document.querySelector("#shake-test");
 const motionPermissionStatusElement = document.querySelector(

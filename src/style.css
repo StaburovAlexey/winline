@@ -67,6 +67,7 @@ body::before {
   z-index: 5;
   display: grid;
   place-items: center;
+  overflow: visible;
   background: #141419;
   opacity: 1;
   transition:
@@ -82,56 +83,124 @@ body::before {
 
 #start-logo {
   position: absolute;
-  top: 83px;
+  top: clamp(24px, calc(24px + (100dvh - 714px) * 0.259911894273), 83px);
   left: 50%;
-  width: 201px;
-  height: 48.24px;
+  width: clamp(100px, calc(100px + (100vw - 402px) * 0.079527559055), 201px);
+  height: clamp(24px, calc(24px + (100dvh - 714px) * 0.106784140969), 48.24px);
   transform: translateX(-50%);
 }
 .start-img {
   object-fit: contain;
   position: absolute;
   display: block;
+  height: auto;
+  /* max-height: 42%; */
 }
 #start-headphone {
-  width: 177.66744995117188px;
-  height: 220.30763244628906px;
-  top: 0;
-  left: 0;
+  width: clamp(93px, 10.6266%, 177.66744995117188px);
+  top: 0%;
+  left: 0%;
 }
 #start-keyboard {
-  width: 196.087890625px;
-  height: 369.1911315917969px;
-  top: 253px;
-  left: -25.09px;
+  width: clamp(85px, 11.727%, 196.087890625px);
+  top: 24%;
+  left: -1.5%;
 }
 #start-cup {
-  bottom: 0;
-  left: 0;
+  width: clamp(62px, 8.732%, 146px);
+  bottom: 5%;
+  transform: rotate(22.95deg);
+  left: -1%;
 }
 #start-ball {
-  top: 382px;
-  right: 0;
+  top: 40%;
+  right: 0%;
+  width: clamp(92px, 10.108%, 169px);
 }
 #start-camera {
-  bottom: 0;
-  right: 0;
+  width: clamp(92px, 13.876%, 232px);
+  bottom: 0%;
+  right: -1%;
 }
 #start-trophy {
-  top: 0;
-  right: 0;
+  width: clamp(106px, 15.968%, 267px);
+  top: 0%;
+  right: 0%;
 }
-#start-snowball{
-  top:37px;
-  left:0;
+#start-snowball {
+  position: absolute;
+  top: 50%;
+  left: 5%;
+  width: 50%;
+  aspect-ratio: 1/1;
+  transform: translateY(-50%);
+  container-type: inline-size;
+  overflow: visible;
+  z-index: 1;
+  isolation: isolate;
+  pointer-events: none;
 }
+
+#start-snowball::before,
+#start-snowball-image {
+  top: 50%;
+  left: 50%;
+  width: 77.3480663%;
+  height: 89.1604676%;
+}
+
+#start-snowball::before {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  transform-origin: center;
+  z-index: 0;
+  pointer-events: none;
+  mix-blend-mode: plus-lighter;
+}
+
+#start-snowball::before {
+  width: 90%;
+  height: 90%;
+  background: radial-gradient(
+    ellipse closest-side at center,
+    #ffb388 0%,
+    #ffb388 12%,
+    #ff5c00 35%,
+    rgb(255 92 0 / 72%) 52%,
+    rgb(255 92 0 / 36%) 70%,
+    rgb(255 92 0 / 12%) 84%,
+    rgb(255 92 0 / 0%) 100%
+  );
+  opacity: 1;
+  filter: blur(clamp(16px, 2vw, 34px));
+}
+
+#start-snowball-image {
+  position: absolute;
+  display: block;
+  object-fit: contain;
+  z-index: 1;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
 .container-text {
-  /* width: 591px;
-  height: 493px; */
+  width: min(591px, 100%);
 }
 .container-text button {
-  width: 382px;
-  height: 71px;
+  width: min(
+    calc(100% - 32px),
+    clamp(328px, calc(328px + (100vw - 402px) * 0.042519685039), 382px)
+  );
+  height: clamp(
+    49.55px,
+    calc(49.55px + (100dvh - 714px) * 0.09449339207),
+    71px
+  );
+  margin: 0 auto
+    clamp(0px, calc(32.45px - (100dvh - 714px) * 0.14295154185), 32.45px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -144,8 +213,16 @@ body::before {
   font-family: "WINLINE Sans", sans-serif;
   font-weight: 700;
   font-style: italic;
-  font-size: 34.15px;
-  line-height: 55.18px;
+  font-size: clamp(
+    24px,
+    calc(24px + (100dvh - 714px) * 0.044713656388),
+    34.15px
+  );
+  line-height: clamp(
+    49.55px,
+    calc(49.55px + (100dvh - 714px) * 0.024801762115),
+    55.18px
+  );
   letter-spacing: 0;
   vertical-align: middle;
   text-transform: uppercase;
@@ -154,11 +231,11 @@ body::before {
   font-family: "WINLINE Sans", sans-serif;
   font-weight: 400;
   font-style: Regular;
-  font-size: 32px;
+  font-size: clamp(24px, calc(24px + (100dvh - 714px) * 0.035242290749), 32px);
   line-height: 100%;
   letter-spacing: 0px;
   vertical-align: middle;
-  width: 441px;
+  width: min(441px, 100%);
 }
 .container-text__header {
   margin: 0;
@@ -168,7 +245,7 @@ body::before {
   /* было: Bold Italic — это невалидное значение */
   font-style: italic;
 
-  font-size: 132px;
+  font-size: clamp(64px, calc(64px + (100dvh - 714px) * 0.299559471366), 132px);
 
   /* leading-trim: NONE; — лучше убрать */
   line-height: 1;
@@ -177,7 +254,7 @@ body::before {
   letter-spacing: 0;
 }
 .container-text__header_first {
-  width: 474px;
+  width: min(474px, 100%);
 }
 
 .container-text__header_second {
@@ -320,5 +397,88 @@ body::before {
 
   #status {
     transition: none;
+  }
+}
+
+@media (max-width: 768px) {
+  #start-screen::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    height: 33px;
+    z-index: 100;
+    background: linear-gradient(
+      to bottom,
+      rgb(20 20 25 / 100%),
+      rgb(20 20 25 / 0%)
+    );
+    pointer-events: none;
+  }
+}
+@media (max-width: 767px) {
+  .start-img {
+    max-height: none;
+  }
+
+  #start-headphone {
+    width: 93px;
+    height: 115px;
+    top: 0;
+    left: -5px;
+  }
+
+  #start-keyboard {
+    width: 85px;
+    height: 160px;
+    top: 108px;
+    left: -25.09px;
+  }
+
+  #start-cup {
+    width: 62px;
+    height: 91px;
+    top: 317px;
+    right: auto;
+    bottom: auto;
+    left: -18px;
+  }
+
+  #start-ball {
+    display: none;
+  }
+
+  #start-camera {
+    width: 92px;
+    height: 115px;
+    top: 292px;
+    right: -15px;
+    bottom: auto;
+  }
+
+  #start-trophy {
+    width: 106px;
+    height: 152px;
+    top: 5px;
+    right: 0;
+  }
+
+  #start-snowball {
+    width: 80%;
+    top: 5%;
+    left: 12%;
+    transform: none;
+  }
+
+  #start-snowball-image {
+    transform: translate(-50%, -50%) rotate(25.4deg);
+  }
+}
+
+@media (max-width: 450px) {
+  .container-text {
+    width: 100%;
+    margin-top: auto;
   }
 }
