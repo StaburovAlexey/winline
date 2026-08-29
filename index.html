@@ -1,28 +1,49 @@
 <!doctype html>
 <html lang="ru">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#080b16" />
-    <title>Winline 3D Showcase</title>
-  </head>
-  <body>
-    <main id="app" aria-label="Winline 3D showcase">
-      <div id="scene" aria-hidden="true"></div>
-      <p id="status" role="status" aria-live="polite">Загрузка 3D-модели…</p>
-      <button id="motion-permission" type="button" hidden>
-        Гироскоп
-      </button>
-      <button id="shake-test" type="button" hidden>
-        Тест тряски
-      </button>
-      <p
-        id="motion-permission-status"
-        role="status"
-        aria-live="polite"
-        hidden
-      ></p>
-    </main>
-    <script type="module" src="/src/app.js"></script>
-  </body>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#080b16" />
+  <title>Winline 3D Showcase</title>
+</head>
+
+<body>
+  <main id="app" aria-label="Winline 3D showcase">
+    <section id="start-screen" aria-label="Начальный экран">
+      <img id="start-logo" src="assets/details/winline-seeklogo%203.svg" alt="Winline" />
+      <img id="start-headphone" class="start-img" src="assets/details/webp/image1282.webp" alt="">
+      <img id="start-keyboard" class="start-img" src="assets/details/webp/Maskgroup.webp" alt="">
+      <div>
+        <img id="start-cup" class="start-img" src="assets/details/webp/cup.webp" alt="">
+        <!-- <img id="start-smoke" class="start-img" src="assets/details/smoke.png" alt=""> -->
+      </div>
+
+      <img id="start-trophy" class="start-img" src="assets/details/webp/trophy.webp" alt="">
+      <img id="start-camera" class="start-img" src="assets/details/webp/camera.webp" alt="">
+      <img id="start-ball" class="start-img" src="assets/details/webp/ball.webp" alt="">
+      <img id="start-snowball" class="start-img" src="assets/details/webp/snowball.webp" alt="">
+      <div class="container-text">
+        <h2 class="container-text__header">
+          <div class="container-text__header_first">ТВОЯ ИГРА</div>
+          <div class="container-text__header_second">НАЧИНАЕТСЯ</div>
+        </h2>
+        <p class="container-text_mini">Каким будет твой год? Переходи дальше и получи предсказание, какой получится твоя
+          карьера в Winline.</p>
+        <button id="start-button" type="button">НАЧАТЬ</button>
+      </div>
+    </section>
+    <div id="scene" aria-hidden="true"></div>
+    <p id="status" role="status" aria-live="polite">Загрузка 3D-модели…</p>
+    <button id="motion-permission" type="button" hidden>
+      Гироскоп
+    </button>
+    <button id="shake-test" type="button" hidden>
+      Тест тряски
+    </button>
+    <p id="motion-permission-status" role="status" aria-live="polite" hidden></p>
+  </main>
+  <script type="module" src="/src/app.js"></script>
+</body>
+
 </html>

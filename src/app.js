@@ -6,6 +6,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { appConfig } from "./config.js";
 import { createModelPhysics } from "./modelPhysics.js";
 import { createParallaxController } from "./parallax.js";
+import "modern-normalize";
 import "./style.css";
 
 document.body.style.setProperty(
@@ -14,6 +15,8 @@ document.body.style.setProperty(
 );
 
 const sceneElement = document.querySelector("#scene");
+const startScreenElement = document.querySelector("#start-screen");
+const startButton = document.querySelector("#start-button");
 const statusElement = document.querySelector("#status");
 const motionPermissionButton = document.querySelector("#motion-permission");
 const shakeTestButton = document.querySelector("#shake-test");
@@ -23,6 +26,8 @@ const motionPermissionStatusElement = document.querySelector(
 
 if (
   !(sceneElement instanceof HTMLElement)
+  || !(startScreenElement instanceof HTMLElement)
+  || !(startButton instanceof HTMLButtonElement)
   || !(statusElement instanceof HTMLElement)
   || !(motionPermissionButton instanceof HTMLButtonElement)
   || !(shakeTestButton instanceof HTMLButtonElement)
@@ -30,6 +35,11 @@ if (
 ) {
   throw new Error("Scene root elements are missing");
 }
+
+startButton.addEventListener("click", () => {
+  startScreenElement.classList.add("is-hidden");
+  startButton.blur();
+});
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(
