@@ -5,6 +5,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#080b16" />
+  <link rel="preload" href="assets/loading-backhround.webp" as="image" type="image/webp" />
   <title>Winline 3D Showcase</title>
 </head>
 
@@ -39,8 +40,27 @@
         </div>
       </div>
     </section>
+    <section id="loading-screen" class="is-hidden" aria-label="Загрузка 3D-модели" aria-hidden="true">
+      <div class="loading-content">
+        <img
+          class="loading-logo"
+          src="assets/details/winline-seeklogo%203.svg"
+          alt="Winline"
+        />
+        <div
+          id="loading-bar"
+          class="loading-bar"
+          role="progressbar"
+          aria-label="Прогресс загрузки"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="0"
+        ></div>
+        <p id="loading-label" class="loading-label">Загрузка...</p>
+        <p id="loading-progress" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">0%</p>
+      </div>
+    </section>
     <div id="scene" aria-hidden="true"></div>
-    <p id="status" role="status" aria-live="polite">Загрузка 3D-модели…</p>
     <button id="motion-permission" type="button" hidden>
       Гироскоп
     </button>

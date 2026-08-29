@@ -17,7 +17,13 @@ document.body.style.setProperty(
 const sceneElement = document.querySelector("#scene");
 const startScreenElement = document.querySelector("#start-screen");
 const startButton = document.querySelector("#start-button");
-// const statusElement = document.querySelector("#status");
+const loadingScreenElement = document.querySelector("#loading-screen");
+const loadingBarElement = document.querySelector("#loading-bar");
+const loadingLabelElement = document.querySelector("#loading-label");
+const loadingProgressElement = document.querySelector("#loading-progress");
+const loadingScreenPreviewMode = document.body.classList.contains(
+  "is-loading-preview",
+);
 const motionPermissionButton = document.querySelector("#motion-permission");
 const shakeTestButton = document.querySelector("#shake-test");
 const motionPermissionStatusElement = document.querySelector(
@@ -28,7 +34,10 @@ if (
   !(sceneElement instanceof HTMLElement)
   || !(startScreenElement instanceof HTMLElement)
   || !(startButton instanceof HTMLButtonElement)
-  || !(statusElement instanceof HTMLElement)
+  || !(loadingScreenElement instanceof HTMLElement)
+  || !(loadingBarElement instanceof HTMLElement)
+  || !(loadingLabelElement instanceof HTMLElement)
+  || !(loadingProgressElement instanceof HTMLElement)
   || !(motionPermissionButton instanceof HTMLButtonElement)
   || !(shakeTestButton instanceof HTMLButtonElement)
   || !(motionPermissionStatusElement instanceof HTMLElement)
@@ -36,10 +45,11 @@ if (
   throw new Error("Scene root elements are missing");
 }
 
-startButton.addEventListener("click", () => {
+if (loadingScreenPreviewMode) {
+  loadingScreenElement.classList.remove("is-hidden");
+  loadingScreenElement.setAttribute("aria-hidden", "false");
   startScreenElement.classList.add("is-hidden");
-  startButton.blur();
-});
+}
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(
@@ -64,7 +74,8 @@ sceneElement.append(renderer.domElement);
 const statsRequested =
   new URLSearchParams(window.location.search).get("stats") === "1";
 const statsEnabled =
-  import.meta.env.DEV || statsRequested || appConfig.renderer.showStats;
+  !loadingScreenPreviewMode
+  && (import.meta.env.DEV || statsRequested || appConfig.renderer.showStats);
 const stats = statsEnabled ? new Stats() : null;
 const physicsStatsPanel = stats?.addPanel(
   new Stats.Panel("PHY", "#ff8", "#221"),
@@ -111,7 +122,7 @@ const parallax = createParallaxController({
   },
 });
 
-if (import.meta.env.DEV) {
+if (import.meta.env.DEV && !loadingScreenPreviewMode) {
   const shakeTestCases = [
     {
       label: "телефон вправо",
@@ -149,24 +160,72 @@ if (import.meta.env.DEV) {
 
 let failedAssetUrl = null;
 let renderInfoLogged = false;
+let loadingProgress = 0;
+const minimumLoadingScreenDuration = 500;
 const clock = new THREE.Clock();
 const frameInterval = 1000 / Math.max(appConfig.renderer.maxFps, 1);
 let lastFrameTime = 0;
 
-function setStatus(message, state = "loading") {
-  statusElement.textContent = message;
-  statusElement.classList.toggle("is-hidden", state === "ready");
-  statusElement.classList.toggle("is-error", state === "error");
+function setLoadingProgress(value, { allowDecrease = false } = {}) {
+  const roundedValue = Math.round(value);
+  const nextValue = Math.min(
+    100,
+    Math.max(allowDecrease ? 0 : loadingProgress, roundedValue),
+  );
+  const loadedSegments = Math.floor(nextValue / 10);
+  loadingProgress = nextValue;
+  loadingBarElement.style.setProperty(
+    "--loading-fill",
+    `${loadedSegments * 9.5}%`,
+  );
+  loadingBarElement.setAttribute("aria-valuenow", String(nextValue));
+  loadingProgressElement.textContent = `${nextValue}%`;
+}
+
+function setLoadingError() {
+  loadingProgressElement.textContent = "ОШИБКА ЗАГРУЗКИ";
+  loadingLabelElement.textContent = "Ошибка загрузки";
+  loadingLabelElement.classList.add("is-error");
+  loadingBarElement.classList.add("is-error");
+  loadingBarElement.removeAttribute("role");
+  loadingBarElement.removeAttribute("aria-valuenow");
+}
+
+function wait(duration) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, duration);
+  });
+}
+
+async function playArtificialLoading(duration = 1000) {
+  const stepCount = 10;
+  const stepDuration = duration / stepCount;
+
+  setLoadingProgress(0, { allowDecrease: true });
+  for (let step = 1; step <= stepCount; step += 1) {
+    await wait(stepDuration);
+    setLoadingProgress(step * 10);
+  }
+}
+
+function showLoadingScreen() {
+  loadingScreenElement.classList.remove("is-hidden");
+  loadingScreenElement.setAttribute("aria-hidden", "false");
+}
+
+function hideLoadingScreen() {
+  loadingScreenElement.classList.add("is-hidden");
+  loadingScreenElement.setAttribute("aria-hidden", "true");
 }
 
 const loadingManager = new THREE.LoadingManager();
-loadingManager.onStart = () => setStatus("Загрузка GLB-модели…");
+loadingManager.onStart = () => setLoadingProgress(1);
 loadingManager.onProgress = (_url, loaded, total) => {
   if (total > 0) {
-    setStatus(`Загрузка ресурсов: ${Math.round((loaded / total) * 100)}%`);
+    setLoadingProgress((loaded / total) * 90);
   }
 };
-loadingManager.onLoad = () => setStatus("Подготовка модели…");
+loadingManager.onLoad = () => setLoadingProgress(90);
 loadingManager.onError = (url) => {
   failedAssetUrl = url;
   console.error(`Не удалось загрузить ассет: ${url}`);
@@ -497,10 +556,9 @@ async function loadScene() {
   scene.add(gltf.scene);
   model = gltf.scene;
   resize();
+  setLoadingProgress(95);
 
   if (appConfig.physics.enabled) {
-    setStatus("Подготовка физики…");
-
     try {
       modelPhysics = await createModelPhysics({
         root: model,
@@ -510,17 +568,14 @@ async function loadScene() {
       });
     } catch (error) {
       console.error("Не удалось подготовить физику модели", error);
-      setStatus("Модель загружена без физики", "error");
-      return;
     }
   }
 
   if (failedAssetUrl) {
-    setStatus("Модель загружена, но часть ресурсов недоступна", "error");
-    return;
+    console.warn("Модель загружена, но часть ресурсов недоступна", failedAssetUrl);
   }
 
-  setStatus("Модель готова", "ready");
+  setLoadingProgress(100);
 }
 
 window.addEventListener("resize", resize, { passive: true });
@@ -532,7 +587,55 @@ window.addEventListener("pagehide", () => {
 resize();
 renderer.setAnimationLoop(animate);
 
-loadScene().catch((error) => {
-  console.error("Не удалось загрузить Winline GLB", error);
-  setStatus("Не удалось загрузить 3D-модель", "error");
+let modelLoadResult = null;
+const modelLoadPromise = loadScene().then(
+  () => {
+    modelLoadResult = { ok: true };
+    return modelLoadResult;
+  },
+  (error) => {
+    console.error("Не удалось загрузить Winline GLB", error);
+    setLoadingError();
+    modelLoadResult = { ok: false };
+    return modelLoadResult;
+  },
+);
+
+let loadingTransitionStarted = false;
+
+startButton.addEventListener("click", async () => {
+  if (loadingTransitionStarted) {
+    return;
+  }
+
+  loadingTransitionStarted = true;
+  startButton.disabled = true;
+  const loadingScreenShownAt = performance.now();
+
+  showLoadingScreen();
+  startScreenElement.classList.add("is-hidden");
+  startButton.blur();
+
+  const modelWasReady = modelLoadResult?.ok === true;
+  const result = modelWasReady
+    ? modelLoadResult
+    : await modelLoadPromise;
+  if (!result.ok) {
+    return;
+  }
+
+  if (modelWasReady) {
+    await playArtificialLoading();
+  }
+
+  const elapsed = performance.now() - loadingScreenShownAt;
+  const remainingDuration = Math.max(
+    0,
+    minimumLoadingScreenDuration - elapsed,
+  );
+  if (remainingDuration > 0) {
+    await wait(remainingDuration);
+  }
+
+  hideLoadingScreen();
 });
