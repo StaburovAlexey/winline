@@ -401,6 +401,9 @@ body::before {
 }
 
 @media (max-width: 768px) {
+  #start-logo{
+    top: 26px;
+  }
   #start-screen::before {
     content: "";
     position: absolute;
@@ -465,9 +468,9 @@ body::before {
   }
 
   #start-snowball {
-    width: 80%;
-    top: 5%;
-    left: 12%;
+    width: 100%;
+    top: 0%;
+    left: 0%;
     transform: none;
   }
 
