@@ -311,7 +311,7 @@ body {
   left: 50%;
 }
 
-#start-snowball::before {
+/* #start-snowball::before {
   content: "";
   position: absolute;
   top: 50%;
@@ -322,9 +322,9 @@ body {
   z-index: 0;
   pointer-events: none;
   mix-blend-mode: plus-lighter;
-}
+} */
 
-#start-snowball::before {
+/* #start-snowball::before {
   width: 90%;
   height: auto;
   aspect-ratio: 1 / 1;
@@ -340,18 +340,18 @@ body {
   );
   opacity: 1;
   filter: blur(clamp(16px, 2vw, 34px));
-}
+} */
 
 #start-snowball-image {
   position: absolute;
   display: block;
-  width: 80%;
+  width: 100%;
   height: auto;
   aspect-ratio: 1 / 1;
   object-fit: contain;
   object-position: center;
   z-index: 1;
-  transform: translate(-50%, -50%) rotate(-9.8deg);
+  transform: translate(-50%, -46%);
   pointer-events: none;
 }
 
