@@ -76,10 +76,7 @@ body {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: max(
-    calc(100vw + 48px),
-    calc(177.6833dvh + 85.288px)
-  );
+  width: max(calc(100vw + 48px), calc(177.6833dvh + 85.288px));
   aspect-ratio: 3344 / 1882;
   transform: translate(-50%, -50%);
 }
@@ -100,7 +97,7 @@ body {
 }
 
 .scene-environment__background--top {
-  top:-20%;
+  top: -20%;
   left: 0;
   z-index: 0;
   transform: translate3d(
@@ -152,8 +149,7 @@ body {
   right: 0;
   z-index: 2;
   width: 32.2368%;
-  transform:
-    translate3d(
+  transform: translate3d(
       var(--scene-center-parallax-x),
       var(--scene-center-parallax-y),
       0
@@ -163,10 +159,10 @@ body {
 }
 
 .scene-decoration--left-bottom {
-  bottom: 0;
-  left: 0;
+  bottom: -22%;
+  left: -10%;
   z-index: 3;
-  width: 30.7715%;
+  width: 40.7715%;
   transform: translate3d(
     var(--scene-bottom-parallax-x),
     var(--scene-bottom-parallax-y),
@@ -176,10 +172,10 @@ body {
 }
 
 .scene-decoration--right-bottom {
-  right: 0;
-  bottom: 0;
+  right: -12%;
+  bottom: -13%;
   z-index: 3;
-  width: 28.6483%;
+  width: 40.6483%;
   transform: translate3d(
     var(--scene-bottom-parallax-x),
     var(--scene-bottom-parallax-y),
@@ -802,6 +798,46 @@ body.is-loading-preview #loading-screen {
   }
 }
 @media (max-width: 767px) {
+  .scene-environment__background--bottom {
+    bottom: calc(50% - 50dvh - 24px);
+  }
+
+  .scene-decoration--top-center {
+    top: calc(50% - 50dvh + 128px);
+    right: calc(48% - 50vw);
+    left: auto;
+    width: 80%;
+    transform: translate3d(
+      var(--scene-top-parallax-x),
+      var(--scene-top-parallax-y),
+      0
+    );
+  }
+
+  .scene-decoration--left-center {
+    top: calc(50% - 50dvh + max(72px, calc(50dvh - 297px)));
+    left: calc(42% - 50vw - 15vw);
+    width: min(92vw, 360px);
+  }
+
+  .scene-decoration--right-center {
+    top: calc(50% - 50dvh + max(410px, calc(50dvh + 41px)));
+    right: calc(43% - 50vw - 16vw);
+    width: min(70vw, 340px);
+  }
+
+  .scene-decoration--left-bottom {
+    bottom: calc(50% - 50dvh - 76px);
+    left: calc(46% - 50vw - 45vw);
+    width: 450px;
+  }
+
+  .scene-decoration--right-bottom {
+    right: calc(33% - 50vw - 13vw);
+    bottom: calc(50% - 50dvh - 31.5px);
+    width: 450px;
+  }
+
   #start-snowball::before {
     width: 100%;
     height: auto;
