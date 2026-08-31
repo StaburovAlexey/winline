@@ -9,11 +9,6 @@ import { createParallaxController } from "./parallax.js";
 import "modern-normalize";
 import "./style.css";
 
-document.body.style.setProperty(
-  "--background-image",
-  `url("${import.meta.env.BASE_URL}assets/main-page/background.webp")`,
-);
-
 const sceneElement = document.querySelector("#scene");
 const startScreenElement = document.querySelector("#start-screen");
 const startButton = document.querySelector("#start-button");

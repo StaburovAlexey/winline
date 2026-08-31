@@ -48,31 +48,141 @@ body,
 }
 
 body {
-  --background-image: none;
-  --background-focus-x: 50%;
-  --background-focus-y: 50%;
-  --background-size: cover;
-  --background-parallax-x: 0px;
-  --background-parallax-y: 0px;
+  --scene-background-top-parallax-x: 0px;
+  --scene-background-top-parallax-y: 0px;
+  --scene-background-bottom-parallax-x: 0px;
+  --scene-background-bottom-parallax-y: 0px;
+  --scene-top-parallax-x: 0px;
+  --scene-top-parallax-y: 0px;
+  --scene-center-parallax-x: 0px;
+  --scene-center-parallax-y: 0px;
+  --scene-bottom-parallax-x: 0px;
+  --scene-bottom-parallax-y: 0px;
 
   min-height: 100dvh;
   overflow: hidden;
   background-color: #080b16;
 }
 
-body::before {
-  content: "";
+#scene-environment {
   position: fixed;
   inset: -24px;
   z-index: 0;
+  overflow: hidden;
   pointer-events: none;
-  background-image: var(--background-image);
-  background-position: var(--background-focus-x) var(--background-focus-y);
-  background-repeat: no-repeat;
-  background-size: var(--background-size);
+}
+
+.scene-environment__plane {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(
+    calc(100vw + 48px),
+    calc(177.6833dvh + 85.288px)
+  );
+  aspect-ratio: 3344 / 1882;
+  transform: translate(-50%, -50%);
+}
+
+.scene-environment__background,
+.scene-decoration {
+  position: absolute;
+  display: block;
+  height: auto;
+  user-select: none;
+  pointer-events: none;
+}
+
+.scene-environment__background {
+  z-index: 0;
+  width: 100%;
+  will-change: transform;
+}
+
+.scene-environment__background--top {
+  top:-20%;
+  left: 0;
+  z-index: 0;
   transform: translate3d(
-    var(--background-parallax-x),
-    var(--background-parallax-y),
+    var(--scene-background-top-parallax-x),
+    var(--scene-background-top-parallax-y),
+    0
+  );
+}
+
+.scene-environment__background--bottom {
+  right: 0;
+  bottom: -14%;
+  z-index: 0;
+  transform: translate3d(
+    var(--scene-background-bottom-parallax-x),
+    var(--scene-background-bottom-parallax-y),
+    0
+  );
+}
+
+.scene-decoration--top-center {
+  top: 20%;
+  left: 0;
+  z-index: 1;
+  width: 100%;
+  transform: translate3d(
+    var(--scene-top-parallax-x),
+    var(--scene-top-parallax-y),
+    0
+  );
+  will-change: transform;
+}
+
+.scene-decoration--left-center {
+  top: 8%;
+  left: 0;
+  z-index: 2;
+  width: 35.2871%;
+  transform: translate3d(
+    var(--scene-center-parallax-x),
+    var(--scene-center-parallax-y),
+    0
+  );
+  will-change: transform;
+}
+
+.scene-decoration--right-center {
+  top: 69%;
+  right: 0;
+  z-index: 2;
+  width: 32.2368%;
+  transform:
+    translate3d(
+      var(--scene-center-parallax-x),
+      var(--scene-center-parallax-y),
+      0
+    )
+    translateY(-50%);
+  will-change: transform;
+}
+
+.scene-decoration--left-bottom {
+  bottom: 0;
+  left: 0;
+  z-index: 3;
+  width: 30.7715%;
+  transform: translate3d(
+    var(--scene-bottom-parallax-x),
+    var(--scene-bottom-parallax-y),
+    0
+  );
+  will-change: transform;
+}
+
+.scene-decoration--right-bottom {
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  width: 28.6483%;
+  transform: translate3d(
+    var(--scene-bottom-parallax-x),
+    var(--scene-bottom-parallax-y),
     0
   );
   will-change: transform;
@@ -583,11 +693,6 @@ body.is-loading-preview #loading-screen {
 } */
 
 @media (prefers-reduced-motion: reduce) {
-  body:not(.is-motion-parallax-enabled)::before {
-    transform: none;
-    will-change: auto;
-  }
-
   #loading-screen {
     transition: none;
   }

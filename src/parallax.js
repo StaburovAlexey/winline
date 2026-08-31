@@ -72,6 +72,12 @@ export function createParallaxController({
   onShake,
 }) {
   const enabled = config?.enabled !== false;
+  const configuredLayers = config?.layers ?? {};
+  const backgroundTopLayerDepth = configuredLayers.backgroundTop ?? 0.2;
+  const backgroundBottomLayerDepth = configuredLayers.backgroundBottom ?? 0.55;
+  const topLayerDepth = configuredLayers.top ?? 0.45;
+  const centerLayerDepth = configuredLayers.center ?? 0.85;
+  const bottomLayerDepth = configuredLayers.bottom ?? 1.2;
   const configuredShake = config?.shake ?? {};
   const platformProfiles = configuredShake.platformProfiles ?? {};
   const platformShakeConfig = isAppleMobileDevice()
@@ -208,6 +214,17 @@ export function createParallaxController({
     }
   }
 
+  function setLayerParallax(layerName, depth, parallaxX, parallaxY) {
+    backgroundElement.style.setProperty(
+      `--scene-${layerName}-parallax-x`,
+      `${parallaxX * depth}px`,
+    );
+    backgroundElement.style.setProperty(
+      `--scene-${layerName}-parallax-y`,
+      `${parallaxY * depth}px`,
+    );
+  }
+
   function applyPose() {
     if (!hasBasePose || disposed) {
       return;
@@ -234,14 +251,24 @@ export function createParallaxController({
     camera.lookAt(baseTarget);
     camera.updateMatrixWorld();
 
-    backgroundElement.style.setProperty(
-      "--background-parallax-x",
-      `${-smoothedInput.x * profile.backgroundX}px`,
+    const parallaxX = -smoothedInput.x * profile.backgroundX;
+    const parallaxY = smoothedInput.y * profile.backgroundY;
+
+    setLayerParallax(
+      "background-top",
+      backgroundTopLayerDepth,
+      parallaxX,
+      parallaxY,
     );
-    backgroundElement.style.setProperty(
-      "--background-parallax-y",
-      `${smoothedInput.y * profile.backgroundY}px`,
+    setLayerParallax(
+      "background-bottom",
+      backgroundBottomLayerDepth,
+      parallaxX,
+      parallaxY,
     );
+    setLayerParallax("top", topLayerDepth, parallaxX, parallaxY);
+    setLayerParallax("center", centerLayerDepth, parallaxX, parallaxY);
+    setLayerParallax("bottom", bottomLayerDepth, parallaxX, parallaxY);
   }
 
   function updateCameraShake(deltaTime) {

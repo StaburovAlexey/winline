@@ -58,6 +58,13 @@ export const appConfig = {
     enabled: true,
     smoothing: 5,
     deadZone: 0.03,
+    layers: {
+      backgroundTop: 0.2,
+      backgroundBottom: 0.55,
+      top: 0.45,
+      center: 0.85,
+      bottom: 1.2,
+    },
     desktop: {
       cameraX: 0.035,
       cameraY: 0.025,
