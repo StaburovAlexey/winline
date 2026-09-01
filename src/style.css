@@ -136,12 +136,42 @@ body {
   left: 0;
   z-index: 2;
   width: 35.2871%;
+  aspect-ratio: 1187 / 2235;
   transform: translate3d(
     var(--scene-center-parallax-x),
     var(--scene-center-parallax-y),
     0
   );
   will-change: transform;
+}
+
+.scene-left-center__layer {
+  position: absolute;
+  display: block;
+  height: auto;
+  user-select: none;
+  pointer-events: none;
+}
+
+.scene-left-center__main {
+  top: 0;
+  left: 0.84%;
+  z-index: 2;
+  width: 98.32%;
+}
+
+.scene-left-center__mirror {
+  top: 47.45%;
+  left: 8.52%;
+  z-index: 1;
+  width: 78.45%;
+}
+
+.scene-left-center__light {
+  top: 46%;
+  left: 25.05%;
+  z-index: 0;
+  width: 76.43%;
 }
 
 .scene-decoration--right-center {
@@ -820,6 +850,11 @@ body.is-loading-preview #loading-screen {
     width: min(92vw, 360px);
   }
 
+  .scene-left-center__mirror,
+  .scene-left-center__light {
+    display: none;
+  }
+
   .scene-decoration--right-center {
     top: calc(50% - 50dvh + max(410px, calc(50dvh + 41px)));
     right: calc(43% - 50vw - 16vw);
@@ -910,7 +945,7 @@ body.is-loading-preview #loading-screen {
   }
 
   #start-snowball-image {
-    transform: translate(-50%, -50%) rotate(14.4deg);
+    transform: translate(-50%, -50%) rotate(24.4deg);
   }
 
   .container-text {
