@@ -4,6 +4,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { appConfig } from "./config.js";
+import cardData from "./card.json";
 import { createModelPhysics } from "./modelPhysics.js";
 import { createParallaxController } from "./parallax.js";
 import "modern-normalize";
@@ -19,6 +20,10 @@ const loadingProgressElement = document.querySelector("#loading-progress");
 const sceneActionsElement = document.querySelector("#scene-actions");
 const sceneShakeHintElement = document.querySelector("#scene-shake-hint");
 const predictionButton = document.querySelector("#prediction-button");
+const predictionModal = document.querySelector("#prediction-modal");
+const predictionMoreButton = document.querySelector("#prediction-more-button");
+const predictionCardImage = document.querySelector("#prediction-card-image");
+const predictionCardText = document.querySelector("#prediction-card-text");
 const loadingScreenPreviewMode = document.body.classList.contains(
   "is-loading-preview",
 );
@@ -39,6 +44,10 @@ if (
   || !(sceneActionsElement instanceof HTMLElement)
   || !(sceneShakeHintElement instanceof HTMLElement)
   || !(predictionButton instanceof HTMLButtonElement)
+  || !(predictionModal instanceof HTMLElement)
+  || !(predictionMoreButton instanceof HTMLButtonElement)
+  || !(predictionCardImage instanceof HTMLImageElement)
+  || !(predictionCardText instanceof HTMLElement)
   || !(motionPermissionButton instanceof HTMLButtonElement)
   || !(shakeTestButton instanceof HTMLButtonElement)
   || !(motionPermissionStatusElement instanceof HTMLElement)
@@ -128,16 +137,154 @@ const hasShakeInput =
   && window.matchMedia("(pointer: coarse)").matches;
 sceneShakeHintElement.hidden = !hasShakeInput;
 
-predictionButton.addEventListener("click", () => {
+const predictionStorageKey = "winline:prediction-deck:v1";
+const predictionCards = new Map(
+  Object.entries(cardData).filter(
+    ([cardId, card]) => /^\d+$/.test(cardId) && typeof card?.text === "string",
+  ),
+);
+const predictionCardIds = [...predictionCards.keys()];
+const predictionCardSignature = predictionCardIds.join(",");
+
+function shuffleCardIds(cardIds) {
+  const shuffled = [...cardIds];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const targetIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[targetIndex]] = [
+      shuffled[targetIndex],
+      shuffled[index],
+    ];
+  }
+  return shuffled;
+}
+
+function createPredictionDeck(lastCardId = null) {
+  const remaining = shuffleCardIds(predictionCardIds);
+  if (
+    remaining.length > 1
+    && lastCardId !== null
+    && remaining[0] === lastCardId
+  ) {
+    const replacementIndex = remaining.findIndex(
+      (cardId) => cardId !== lastCardId,
+    );
+    [remaining[0], remaining[replacementIndex]] = [
+      remaining[replacementIndex],
+      remaining[0],
+    ];
+  }
+  return { remaining, lastCardId };
+}
+
+function loadPredictionDeck() {
+  try {
+    const savedState = JSON.parse(
+      window.localStorage.getItem(predictionStorageKey) ?? "null",
+    );
+    const remaining = savedState?.remaining;
+    const hasValidRemainingCards =
+      Array.isArray(remaining)
+      && new Set(remaining).size === remaining.length
+      && remaining.every((cardId) => predictionCards.has(cardId));
+    const hasValidLastCard =
+      savedState?.lastCardId === null
+      || predictionCards.has(savedState?.lastCardId);
+
+    if (
+      savedState?.signature === predictionCardSignature
+      && hasValidRemainingCards
+      && hasValidLastCard
+    ) {
+      return {
+        remaining: [...remaining],
+        lastCardId: savedState.lastCardId,
+      };
+    }
+  } catch (error) {
+    console.warn("Не удалось восстановить историю предсказаний", error);
+  }
+  return createPredictionDeck();
+}
+
+function savePredictionDeck(deck) {
+  try {
+    window.localStorage.setItem(
+      predictionStorageKey,
+      JSON.stringify({
+        signature: predictionCardSignature,
+        remaining: deck.remaining,
+        lastCardId: deck.lastCardId,
+      }),
+    );
+  } catch (error) {
+    console.warn("Не удалось сохранить историю предсказаний", error);
+  }
+}
+
+let predictionDeck = loadPredictionDeck();
+
+function takeNextPrediction() {
+  if (predictionDeck.remaining.length === 0) {
+    predictionDeck = createPredictionDeck(predictionDeck.lastCardId);
+  }
+
+  const cardId = predictionDeck.remaining.shift();
+  predictionDeck.lastCardId = cardId;
+  savePredictionDeck(predictionDeck);
+  return { cardId, ...predictionCards.get(cardId) };
+}
+
+function renderPredictionText(text) {
+  const content = document.createDocumentFragment();
+  for (const part of text.split(/(<br\s*\/?>)/gi)) {
+    if (/^<br\s*\/?>$/i.test(part)) {
+      content.append(document.createElement("br"));
+    } else if (part) {
+      content.append(document.createTextNode(part));
+    }
+  }
+  predictionCardText.replaceChildren(content);
+}
+
+function renderPrediction({ cardId, text }) {
+  predictionCardImage.src = `${import.meta.env.BASE_URL}assets/card/${cardId}.webp`;
+  renderPredictionText(text);
+}
+
+function closePredictionModal() {
+  predictionModal.hidden = true;
+}
+
+predictionModal.addEventListener("click", (event) => {
+  if (event.target === predictionModal) {
+    closePredictionModal();
+  }
+});
+
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !predictionModal.hidden) {
+    closePredictionModal();
+  }
+});
+
+function runPrediction() {
   const burstStarted = modelPhysics?.applyPredictionBurst() === true;
   if (burstStarted) {
+    renderPrediction(takeNextPrediction());
+    closePredictionModal();
     predictionButton.disabled = true;
     window.setTimeout(() => {
       predictionButton.disabled = false;
     }, appConfig.physics.predictionBurst.cooldownMs);
+    window.setTimeout(() => {
+      predictionModal.hidden = false;
+    }, 1000);
   }
   predictionButton.blur();
-});
+}
+
+predictionButton.addEventListener("click", runPrediction);
+predictionMoreButton.addEventListener("click", runPrediction);
 
 if (import.meta.env.DEV && !loadingScreenPreviewMode) {
   const shakeTestCases = [

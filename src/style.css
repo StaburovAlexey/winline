@@ -578,11 +578,7 @@ body {
   font-family: "WINLINE Sans", sans-serif;
   font-weight: 700;
   font-style: italic;
-  font-size: clamp(
-    24px,
-    calc(24px + (100vw - 402px) * 0.0047244094),
-    30px
-  );
+  font-size: clamp(24px, calc(24px + (100vw - 402px) * 0.0047244094), 30px);
   line-height: 1;
   letter-spacing: 0;
   text-align: center;
@@ -600,6 +596,133 @@ body {
 .scene-prediction-button:disabled {
   cursor: default;
   opacity: 0.82;
+}
+
+.prediction-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: #000000b2;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  animation: prediction-overlay-in 320ms ease-out both;
+}
+
+.prediction-modal[hidden] {
+  display: none;
+}
+
+.prediction-modal__dialog {
+  position: relative;
+  width: min(451.82px, 100%);
+  height: min(449.82px, calc(100dvh - 32px));
+  padding: 96px 32px 32px;
+  border: 2.41px solid #2b2b33;
+  border-radius: 28.93px;
+  background: #141419;
+  box-shadow: 0 14.46px 14.46px rgb(0 0 0 / 70%);
+  animation: prediction-dialog-in 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.prediction-modal__card-image {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  display: block;
+  /* width: 128px;
+  height: 128px; */
+  object-fit: contain;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  user-select: none;
+}
+
+@keyframes prediction-overlay-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes prediction-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.prediction-modal__text {
+  width: 100%;
+  /* max-width: 352px; */
+  margin: 0 auto;
+  color: #fff;
+  font-family: "WINLINE Sans", sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  font-size: 36px;
+  line-height: 1;
+  letter-spacing: 0;
+  text-align: center;
+}
+
+.prediction-modal__actions {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  /* margin-top: 40px; */
+  gap: 12px;
+}
+
+.prediction-modal__button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 60px;
+  padding: 5.97px;
+  border-radius: 5971.64px;
+  color: #fff;
+  font-family: "WINLINE Sans", sans-serif;
+  font-weight: 700;
+  font-style: italic;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: 0;
+  text-align: center;
+  text-decoration: none;
+  text-transform: uppercase;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.prediction-modal__button--primary {
+  border: 0;
+  background: #ff5c00;
+}
+
+.prediction-modal__button--secondary {
+  border: 2.41px solid #ff5c00;
+  background: transparent;
+}
+
+.prediction-modal__button:active {
+  transform: translateY(1px);
 }
 
 #loading-screen {
@@ -993,13 +1116,53 @@ body.is-loading-preview #loading-screen {
 }
 
 @media (max-width: 767px) {
+  .prediction-modal {
+    place-items: end center;
+    padding: 0 16px 78.41px;
+  }
+
+  .prediction-modal__dialog {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    width: min(332px, 100%);
+    height: min(339.09px, calc(100dvh - 32px));
+    padding: 80px 24px 24px;
+    border-width: 2px;
+    border-radius: 24px;
+    box-shadow: 0 12px 12px rgb(0 0 0 / 70%);
+  }
+
+  .prediction-modal__card-image {
+    width: 150.4px;
+    height: 150.4px;
+  }
+
+  .prediction-modal__actions {
+    margin-top: 0;
+  }
+
+  .prediction-modal__button {
+    height: 49.55px;
+    font-size: 24px;
+    line-height: 38.77px;
+  }
+
+  .prediction-modal__text {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    max-width: 292px;
+    min-height: 72px;
+    font-size: 24px;
+    line-height: 1;
+  }
+
   .scene-actions {
     bottom: calc(
-      clamp(
-        43.93px,
-        calc(43.93px + (100vw - 402px) * 0.0201259843),
-        69.49px
-      ) + env(safe-area-inset-bottom)
+      clamp(43.93px, calc(43.93px + (100vw - 402px) * 0.0201259843), 69.49px) +
+        env(safe-area-inset-bottom)
     );
   }
 

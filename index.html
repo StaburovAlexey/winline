@@ -84,6 +84,16 @@
       <p id="scene-shake-hint" class="scene-shake-hint" hidden>Потряси телефон или нажми на кнопку</p>
       <button id="prediction-button" class="scene-prediction-button" type="button">ПОЛУЧИТЬ ПРЕДСКАЗАНИЕ</button>
     </div>
+    <div id="prediction-modal" class="prediction-modal" hidden>
+      <div class="prediction-modal__dialog" role="dialog" aria-modal="true" aria-label="Предсказание">
+        <img id="prediction-card-image" class="prediction-modal__card-image" src="assets/card/1.webp" alt="">
+        <p id="prediction-card-text" class="prediction-modal__text"></p>
+        <div class="prediction-modal__actions">
+          <button id="prediction-more-button" class="prediction-modal__button prediction-modal__button--primary" type="button">ПОЛУЧИТЬ ЕЩЕ</button>
+          <a class="prediction-modal__button prediction-modal__button--secondary" href="https://hh.ru/" target="_blank" rel="noopener noreferrer">ПЕРЕЙТИ НА HH.RU</a>
+        </div>
+      </div>
+    </div>
     <button id="motion-permission" type="button" hidden>
       Гироскоп
     </button>
