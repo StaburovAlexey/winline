@@ -267,6 +267,32 @@ body {
   display: block;
   height: auto;
   /* max-height: 42%; */
+  animation: start-object-enter 900ms cubic-bezier(0.22, 1, 0.36, 1) var(--start-enter-delay, 0ms) both;
+  will-change: opacity, transform;
+}
+
+#start-headphone {
+  --start-enter-delay: 40ms;
+}
+
+#start-keyboard {
+  --start-enter-delay: 120ms;
+}
+
+#start-cup-group {
+  --start-enter-delay: 200ms;
+}
+
+#start-ball {
+  --start-enter-delay: 160ms;
+}
+
+#start-camera {
+  --start-enter-delay: 280ms;
+}
+
+#start-trophy {
+  --start-enter-delay: 80ms;
 }
 #start-headphone {
   width: clamp(93px, 10.6266%, 177.66744995117188px);
@@ -282,6 +308,8 @@ body {
   width: clamp(62px, 8.732%, 146px);
   bottom: 5%;
   left: -1%;
+  animation: none;
+  will-change: auto;
 }
 
 #start-cup {
@@ -291,6 +319,9 @@ body {
   width: 100%;
   height: auto;
   transform: rotate(22.95deg);
+  animation: start-cup-enter 900ms cubic-bezier(0.22, 1, 0.36, 1)
+    var(--start-enter-delay, 0ms) both;
+  will-change: opacity, transform;
 }
 
 #start-smoke {
@@ -304,6 +335,9 @@ body {
   mix-blend-mode: screen;
   filter: brightness(3) contrast(1.2);
   pointer-events: none;
+  animation: start-smoke-enter 900ms cubic-bezier(0.22, 1, 0.36, 1)
+    var(--start-enter-delay, 0ms) both;
+  will-change: opacity;
 }
 #start-ball {
   top: 40%;
@@ -345,6 +379,77 @@ body {
   z-index: 1;
   isolation: isolate;
   pointer-events: none;
+  animation: start-snowball-enter 1s cubic-bezier(0.22, 1, 0.36, 1) 140ms both;
+  will-change: opacity, transform;
+}
+
+@keyframes start-object-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0) scale(0.98);
+  }
+
+  60% {
+    opacity: 1;
+    transform: translate3d(0, -2px, 0) scale(1);
+    animation-timing-function: ease-in-out;
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes start-cup-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0) rotate(22.95deg) scale(0.98);
+  }
+
+  60% {
+    opacity: 1;
+    transform: translate3d(0, -2px, 0) rotate(22.95deg) scale(1);
+    animation-timing-function: ease-in-out;
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(22.95deg) scale(1);
+  }
+}
+
+@keyframes start-smoke-enter {
+  from {
+    opacity: 0;
+  }
+
+  60% {
+    opacity: 1;
+    animation-timing-function: ease-in-out;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes start-snowball-enter {
+  from {
+    opacity: 0;
+    transform: translate(4%, calc(-4% + 18px)) scale(0.98);
+  }
+
+  60% {
+    opacity: 1;
+    transform: translate(4%, calc(-4% - 2px)) scale(1);
+    animation-timing-function: ease-in-out;
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(4%, -4%) scale(1);
+  }
 }
 
 #start-snowball-image {
@@ -986,6 +1091,13 @@ body.is-loading-preview #loading-screen {
   #loading-screen {
     transition: none;
   }
+
+  .start-img,
+  #start-cup,
+  #start-smoke,
+  #start-snowball {
+    animation: none !important;
+  }
 }
 
 @media (max-width: 768px) {
@@ -1381,6 +1493,25 @@ body.is-loading-preview #loading-screen {
     top: auto;
     left: auto;
     transform: translateY(10%);
+    animation-name: start-snowball-enter-mobile;
+  }
+
+  @keyframes start-snowball-enter-mobile {
+    from {
+      opacity: 0;
+      transform: translateY(calc(10% + 18px)) scale(0.98);
+    }
+
+    60% {
+      opacity: 1;
+      transform: translateY(calc(10% - 2px)) scale(1);
+      animation-timing-function: ease-in-out;
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(10%) scale(1);
+    }
   }
 
   #start-snowball-image {
