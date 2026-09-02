@@ -1,11 +1,11 @@
 export const appConfig = {
   model: {
-    url: `${import.meta.env.BASE_URL}assets/winline.glb`,
+    url: `${import.meta.env.BASE_URL}assets/winline3.glb`,
     dracoDecoderPath: `${import.meta.env.BASE_URL}draco/`,
     normalize: true,
     scale: 1,
     position: { x: 0, y: 0, z: 0 },
-    rotationDegrees: { x: 0, y: 35, z: 0 },
+    rotationDegrees: { x: 0, y: 40, z: 0 },
   },
 
   camera: {
@@ -32,14 +32,14 @@ export const appConfig = {
       mobileWidthFill: 1,
       desktopPadding: 1,
       // Смещение задаёт ракурс и масштабируется вместе с дистанцией камеры.
-      positionOffset: { x: 0, y: 1, z: 0 },
+      positionOffset: { x: 0, y: 0.8, z: 0 },
       targetOffset: { x: 0, y: 0, z: 0 },
       excludedMeshNames: [
         "Sphere",
         "Sphere_colaider",
         "static_base_colaider",
       ],
-      excludedGeometryNames: ["Sphere.020"],
+      excludedGeometryNames: ["Sphere"],
     },
   },
 
@@ -113,7 +113,7 @@ export const appConfig = {
 
   materials: {
     transparentMeshNames: ["Sphere"],
-    transparentGeometryNames: ["Sphere.020"],
+    transparentGeometryNames: ["Sphere"],
   },
 
   physics: {
@@ -165,6 +165,16 @@ export const appConfig = {
     shakePressureCenteringRatio: 0.45,
     shakePressureTurbulenceRatio: 0.3,
     shakePressureUpdateInterval: 1 / 30,
+    predictionBurst: {
+      duration: 0.25,
+      cooldownMs: 400,
+      upwardVelocityMin: 5.2,
+      upwardVelocityMax: 6.3,
+      horizontalVelocityMin: 0.8,
+      horizontalVelocityMax: 1.8,
+      angularVelocityMin: 3.5,
+      angularVelocityMax: 6,
+    },
     launchMinSpeed: 1.25,
     launchMaxSpeed: 6,
     launchVelocityMin: 3.2,

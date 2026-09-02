@@ -16,6 +16,9 @@ const loadingScreenElement = document.querySelector("#loading-screen");
 const loadingBarElement = document.querySelector("#loading-bar");
 const loadingLabelElement = document.querySelector("#loading-label");
 const loadingProgressElement = document.querySelector("#loading-progress");
+const sceneActionsElement = document.querySelector("#scene-actions");
+const sceneShakeHintElement = document.querySelector("#scene-shake-hint");
+const predictionButton = document.querySelector("#prediction-button");
 const loadingScreenPreviewMode = document.body.classList.contains(
   "is-loading-preview",
 );
@@ -33,6 +36,9 @@ if (
   || !(loadingBarElement instanceof HTMLElement)
   || !(loadingLabelElement instanceof HTMLElement)
   || !(loadingProgressElement instanceof HTMLElement)
+  || !(sceneActionsElement instanceof HTMLElement)
+  || !(sceneShakeHintElement instanceof HTMLElement)
+  || !(predictionButton instanceof HTMLButtonElement)
   || !(motionPermissionButton instanceof HTMLButtonElement)
   || !(shakeTestButton instanceof HTMLButtonElement)
   || !(motionPermissionStatusElement instanceof HTMLElement)
@@ -115,6 +121,22 @@ const parallax = createParallaxController({
   onShake: ({ strength, direction, coherence }) => {
     modelPhysics?.applyShake({ strength, direction, coherence });
   },
+});
+
+const hasShakeInput =
+  typeof window.DeviceMotionEvent !== "undefined"
+  && window.matchMedia("(pointer: coarse)").matches;
+sceneShakeHintElement.hidden = !hasShakeInput;
+
+predictionButton.addEventListener("click", () => {
+  const burstStarted = modelPhysics?.applyPredictionBurst() === true;
+  if (burstStarted) {
+    predictionButton.disabled = true;
+    window.setTimeout(() => {
+      predictionButton.disabled = false;
+    }, appConfig.physics.predictionBurst.cooldownMs);
+  }
+  predictionButton.blur();
 });
 
 if (import.meta.env.DEV && !loadingScreenPreviewMode) {
@@ -633,4 +655,5 @@ startButton.addEventListener("click", async () => {
   }
 
   hideLoadingScreen();
+  sceneActionsElement.classList.remove("is-hidden");
 });
