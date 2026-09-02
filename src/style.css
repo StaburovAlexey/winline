@@ -607,7 +607,7 @@ body {
   padding: 16px;
   background: #000000b2;
   -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(6px);
   animation: prediction-overlay-in 320ms ease-out both;
 }
 
@@ -726,25 +726,40 @@ body {
 }
 
 #loading-screen {
+  --loading-background-image: none;
   position: fixed;
   inset: 0;
-  z-index: 4;
+  z-index: 6;
   display: grid;
   place-items: center;
   overflow: hidden;
-  background: #0d0e14 url("/assets/loading-backhround.webp") center / cover
-    no-repeat;
+  background-color: #0d0e14;
+  background-image: none;
   visibility: visible;
   opacity: 1;
-  transition:
-    opacity 220ms ease,
-    visibility 220ms ease;
+  transition: none;
 }
 
 #loading-screen.is-hidden {
   visibility: hidden;
   opacity: 0;
   pointer-events: none;
+}
+
+.loading-background {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image: var(--loading-background-image);
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  opacity: 0;
+  pointer-events: none;
+}
+
+#loading-screen:not(.is-hidden) .loading-background {
+  animation: loading-background-in 420ms ease-out both;
 }
 
 body.is-loading-preview #start-screen,
@@ -771,6 +786,32 @@ body.is-loading-preview #loading-screen {
   width: 100%;
 }
 
+#loading-screen:not(.is-hidden) .loading-content {
+  animation: loading-content-in 420ms ease-out 80ms both;
+}
+
+@keyframes loading-background-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes loading-content-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .loading-logo {
   display: block;
   width: min(314px, 76vw);
@@ -779,6 +820,7 @@ body.is-loading-preview #loading-screen {
 }
 
 .loading-bar {
+  --loading-bar-image: none;
   --loading-fill: 0%;
   --loading-fill-padding-x: 2.5%;
   --loading-fill-padding-y: 18%;
@@ -788,7 +830,10 @@ body.is-loading-preview #loading-screen {
   aspect-ratio: 2008 / 252;
   margin-bottom: 61px;
   overflow: hidden;
-  background: url("/assets/load-bar.png") center / 108.167% 287.302% no-repeat;
+  background-image: var(--loading-bar-image);
+  background-position: center;
+  background-size: 108.167% 287.302%;
+  background-repeat: no-repeat;
 }
 
 .loading-bar::after {
@@ -796,8 +841,14 @@ body.is-loading-preview #loading-screen {
   position: absolute;
   inset: 0;
   background-color: #ff5c00;
-  -webkit-mask: url("/assets/load-bar.png") center / 108.167% 287.302% no-repeat;
-  mask: url("/assets/load-bar.png") center / 108.167% 287.302% no-repeat;
+  -webkit-mask-image: var(--loading-bar-image);
+  mask-image: var(--loading-bar-image);
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: 108.167% 287.302%;
+  mask-size: 108.167% 287.302%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
   clip-path: inset(
     var(--loading-fill-padding-y)
       calc(100% - var(--loading-fill-padding-x) - var(--loading-fill))
@@ -946,11 +997,16 @@ body.is-loading-preview #loading-screen {
     top: 0;
     bottom: 0;
     width: 100%;
-    opacity: 1;
+    opacity: 0;
     pointer-events: none;
-    background-image: url("/assets/loading-backhround.webp");
+    background-image: var(--loading-background-image);
     background-repeat: no-repeat;
     background-size: auto 100%;
+  }
+
+  #loading-screen:not(.is-hidden)::before,
+  #loading-screen:not(.is-hidden)::after {
+    animation: loading-background-in 420ms ease-out both;
   }
 
   #loading-screen::before {

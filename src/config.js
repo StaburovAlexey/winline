@@ -1,6 +1,6 @@
 export const appConfig = {
   model: {
-    url: `${import.meta.env.BASE_URL}assets/winline3.glb`,
+    url: `${import.meta.env.BASE_URL}assets/winline2.glb`,
     dracoDecoderPath: `${import.meta.env.BASE_URL}draco/`,
     normalize: true,
     scale: 1,

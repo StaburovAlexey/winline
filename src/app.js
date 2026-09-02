@@ -1,19 +1,20 @@
 import * as THREE from "three";
 import Stats from "stats.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { appConfig } from "./config.js";
 import cardData from "./card.json";
-import { createModelPhysics } from "./modelPhysics.js";
 import { createParallaxController } from "./parallax.js";
 import "modern-normalize";
 import "./style.css";
 
 const sceneElement = document.querySelector("#scene");
+const sceneAssetImages = document.querySelectorAll(
+  "#scene-environment img[data-src], #scene-decorations img[data-src]",
+);
 const startScreenElement = document.querySelector("#start-screen");
 const startButton = document.querySelector("#start-button");
 const loadingScreenElement = document.querySelector("#loading-screen");
+const loadingLogoElement = document.querySelector(".loading-logo");
 const loadingBarElement = document.querySelector("#loading-bar");
 const loadingLabelElement = document.querySelector("#loading-label");
 const loadingProgressElement = document.querySelector("#loading-progress");
@@ -38,6 +39,7 @@ if (
   || !(startScreenElement instanceof HTMLElement)
   || !(startButton instanceof HTMLButtonElement)
   || !(loadingScreenElement instanceof HTMLElement)
+  || !(loadingLogoElement instanceof HTMLImageElement)
   || !(loadingBarElement instanceof HTMLElement)
   || !(loadingLabelElement instanceof HTMLElement)
   || !(loadingProgressElement instanceof HTMLElement)
@@ -56,6 +58,7 @@ if (
 }
 
 if (loadingScreenPreviewMode) {
+  prepareLoadingAssets();
   loadingScreenElement.classList.remove("is-hidden");
   loadingScreenElement.setAttribute("aria-hidden", "false");
   startScreenElement.classList.add("is-hidden");
@@ -145,6 +148,7 @@ const predictionCards = new Map(
 );
 const predictionCardIds = [...predictionCards.keys()];
 const predictionCardSignature = predictionCardIds.join(",");
+let predictionCardsPreloadPromise = null;
 
 function shuffleCardIds(cardIds) {
   const shuffled = [...cardIds];
@@ -251,6 +255,66 @@ function renderPrediction({ cardId, text }) {
   renderPredictionText(text);
 }
 
+function preloadPredictionCardImages() {
+  if (predictionCardsPreloadPromise) {
+    return predictionCardsPreloadPromise;
+  }
+
+  predictionCardsPreloadPromise = Promise.all(
+    predictionCardIds.map((cardId) => {
+      const url = `${import.meta.env.BASE_URL}assets/card/${cardId}.webp`;
+      return new Promise((resolve) => {
+        const image = new Image();
+        loadingManager.itemStart(url);
+        image.onload = () => {
+          loadingManager.itemEnd(url);
+          resolve();
+        };
+        image.onerror = () => {
+          loadingManager.itemError(url);
+          loadingManager.itemEnd(url);
+          resolve();
+        };
+        image.src = url;
+      });
+    }),
+  );
+
+  return predictionCardsPreloadPromise;
+}
+
+let sceneAssetsPreloadPromise = null;
+
+function preloadSceneAssets() {
+  if (sceneAssetsPreloadPromise) {
+    return sceneAssetsPreloadPromise;
+  }
+
+  sceneAssetsPreloadPromise = Promise.all(
+    [...sceneAssetImages].map((image) => {
+      const url = `${import.meta.env.BASE_URL}${image.dataset.src}`;
+      return new Promise((resolve) => {
+        loadingManager.itemStart(url);
+        image.addEventListener("load", async () => {
+          if (typeof image.decode === "function") {
+            await image.decode().catch(() => {});
+          }
+          loadingManager.itemEnd(url);
+          resolve();
+        }, { once: true });
+        image.addEventListener("error", () => {
+          loadingManager.itemError(url);
+          loadingManager.itemEnd(url);
+          resolve();
+        }, { once: true });
+        image.src = url;
+      });
+    }),
+  );
+
+  return sceneAssetsPreloadPromise;
+}
+
 function closePredictionModal() {
   predictionModal.hidden = true;
 }
@@ -325,6 +389,7 @@ if (import.meta.env.DEV && !loadingScreenPreviewMode) {
 let failedAssetUrl = null;
 let renderInfoLogged = false;
 let loadingProgress = 0;
+let modelLoadPromise = null;
 const minimumLoadingScreenDuration = 500;
 const clock = new THREE.Clock();
 const frameInterval = 1000 / Math.max(appConfig.renderer.maxFps, 1);
@@ -361,20 +426,25 @@ function wait(duration) {
   });
 }
 
-async function playArtificialLoading(duration = 1000) {
-  const stepCount = 10;
-  const stepDuration = duration / stepCount;
-
-  setLoadingProgress(0, { allowDecrease: true });
-  for (let step = 1; step <= stepCount; step += 1) {
-    await wait(stepDuration);
-    setLoadingProgress(step * 10);
-  }
-}
-
 function showLoadingScreen() {
+  prepareLoadingAssets();
   loadingScreenElement.classList.remove("is-hidden");
   loadingScreenElement.setAttribute("aria-hidden", "false");
+}
+
+function prepareLoadingAssets() {
+  if (!loadingLogoElement.hasAttribute("src")) {
+    loadingLogoElement.src = loadingLogoElement.dataset.src;
+  }
+
+  loadingScreenElement.style.setProperty(
+    "--loading-background-image",
+    'url("/assets/loading-backhround.webp")',
+  );
+  loadingBarElement.style.setProperty(
+    "--loading-bar-image",
+    'url("/assets/load-bar.png")',
+  );
 }
 
 function hideLoadingScreen() {
@@ -687,6 +757,12 @@ function animate(time) {
 }
 
 async function loadScene() {
+  const [{ DRACOLoader }, { GLTFLoader }, { createModelPhysics }] =
+    await Promise.all([
+      import("three/addons/loaders/DRACOLoader.js"),
+      import("three/addons/loaders/GLTFLoader.js"),
+      import("./modelPhysics.js"),
+    ]);
   const dracoLoader = new DRACOLoader(loadingManager);
   dracoLoader.setDecoderPath(appConfig.model.dracoDecoderPath);
   dracoLoader.preload();
@@ -751,19 +827,20 @@ window.addEventListener("pagehide", () => {
 resize();
 renderer.setAnimationLoop(animate);
 
-let modelLoadResult = null;
-const modelLoadPromise = loadScene().then(
-  () => {
-    modelLoadResult = { ok: true };
-    return modelLoadResult;
-  },
-  (error) => {
-    console.error("Не удалось загрузить Winline GLB", error);
-    setLoadingError();
-    modelLoadResult = { ok: false };
-    return modelLoadResult;
-  },
-);
+function getModelLoadPromise() {
+  if (!modelLoadPromise) {
+    modelLoadPromise = loadScene().then(
+      () => ({ ok: true }),
+      (error) => {
+        console.error("Не удалось загрузить Winline GLB", error);
+        setLoadingError();
+        return { ok: false };
+      },
+    );
+  }
+
+  return modelLoadPromise;
+}
 
 let loadingTransitionStarted = false;
 
@@ -780,16 +857,13 @@ startButton.addEventListener("click", async () => {
   startScreenElement.classList.add("is-hidden");
   startButton.blur();
 
-  const modelWasReady = modelLoadResult?.ok === true;
-  const result = modelWasReady
-    ? modelLoadResult
-    : await modelLoadPromise;
+  const [result] = await Promise.all([
+    getModelLoadPromise(),
+    preloadPredictionCardImages(),
+    preloadSceneAssets(),
+  ]);
   if (!result.ok) {
     return;
-  }
-
-  if (modelWasReady) {
-    await playArtificialLoading();
   }
 
   const elapsed = performance.now() - loadingScreenShownAt;
