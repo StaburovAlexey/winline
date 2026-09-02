@@ -28,7 +28,6 @@ const predictionCardText = document.querySelector("#prediction-card-text");
 const loadingScreenPreviewMode = document.body.classList.contains(
   "is-loading-preview",
 );
-const motionPermissionButton = document.querySelector("#motion-permission");
 const shakeTestButton = document.querySelector("#shake-test");
 const motionPermissionStatusElement = document.querySelector(
   "#motion-permission-status",
@@ -50,7 +49,6 @@ if (
   || !(predictionMoreButton instanceof HTMLButtonElement)
   || !(predictionCardImage instanceof HTMLImageElement)
   || !(predictionCardText instanceof HTMLElement)
-  || !(motionPermissionButton instanceof HTMLButtonElement)
   || !(shakeTestButton instanceof HTMLButtonElement)
   || !(motionPermissionStatusElement instanceof HTMLElement)
 ) {
@@ -127,12 +125,12 @@ const parallax = createParallaxController({
   target: controls.target,
   canvas: renderer.domElement,
   backgroundElement: document.body,
-  permissionButton: motionPermissionButton,
   permissionStatusElement: motionPermissionStatusElement,
   config: appConfig.parallax,
   onShake: ({ strength, direction, coherence }) => {
     modelPhysics?.applyShake({ strength, direction, coherence });
   },
+  onShakeEnd: handleShakeEnd,
 });
 
 const hasShakeInput =
@@ -319,6 +317,24 @@ function closePredictionModal() {
   predictionModal.hidden = true;
 }
 
+let predictionRevealPending = false;
+
+function handleShakeEnd() {
+  const sceneIsReady =
+    modelPhysics !== null
+    && !sceneActionsElement.classList.contains("is-hidden");
+  if (
+    !sceneIsReady
+    || predictionRevealPending
+    || !predictionModal.hidden
+  ) {
+    return;
+  }
+
+  renderPrediction(takeNextPrediction());
+  predictionModal.hidden = false;
+}
+
 predictionModal.addEventListener("click", (event) => {
   if (event.target === predictionModal) {
     closePredictionModal();
@@ -332,16 +348,23 @@ window.addEventListener("keydown", (event) => {
 });
 
 function runPrediction() {
+  if (predictionRevealPending) {
+    predictionButton.blur();
+    return;
+  }
+
   const burstStarted = modelPhysics?.applyPredictionBurst() === true;
   if (burstStarted) {
     renderPrediction(takeNextPrediction());
     closePredictionModal();
+    predictionRevealPending = true;
     predictionButton.disabled = true;
     window.setTimeout(() => {
       predictionButton.disabled = false;
     }, appConfig.physics.predictionBurst.cooldownMs);
     window.setTimeout(() => {
       predictionModal.hidden = false;
+      predictionRevealPending = false;
     }, 1000);
   }
   predictionButton.blur();
@@ -851,6 +874,9 @@ startButton.addEventListener("click", async () => {
 
   loadingTransitionStarted = true;
   startButton.disabled = true;
+  void parallax.activateSensors().catch((error) => {
+    console.error("Не удалось включить датчики движения", error);
+  });
   const loadingScreenShownAt = performance.now();
 
   showLoadingScreen();

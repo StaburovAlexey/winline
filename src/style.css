@@ -308,8 +308,6 @@ body {
   width: clamp(62px, 8.732%, 146px);
   bottom: 5%;
   left: -1%;
-  animation: none;
-  will-change: auto;
 }
 
 #start-cup {
@@ -319,9 +317,6 @@ body {
   width: 100%;
   height: auto;
   transform: rotate(22.95deg);
-  animation: start-cup-enter 900ms cubic-bezier(0.22, 1, 0.36, 1)
-    var(--start-enter-delay, 0ms) both;
-  will-change: opacity, transform;
 }
 
 #start-smoke {
@@ -332,12 +327,7 @@ body {
   display: block;
   width: 81%;
   height: auto;
-  mix-blend-mode: screen;
-  filter: brightness(3) contrast(1.2);
   pointer-events: none;
-  animation: start-smoke-enter 900ms cubic-bezier(0.22, 1, 0.36, 1)
-    var(--start-enter-delay, 0ms) both;
-  will-change: opacity;
 }
 #start-ball {
   top: 40%;
@@ -398,39 +388,6 @@ body {
   to {
     opacity: 1;
     transform: translate3d(0, 0, 0) scale(1);
-  }
-}
-
-@keyframes start-cup-enter {
-  from {
-    opacity: 0;
-    transform: translate3d(0, 18px, 0) rotate(22.95deg) scale(0.98);
-  }
-
-  60% {
-    opacity: 1;
-    transform: translate3d(0, -2px, 0) rotate(22.95deg) scale(1);
-    animation-timing-function: ease-in-out;
-  }
-
-  to {
-    opacity: 1;
-    transform: translate3d(0, 0, 0) rotate(22.95deg) scale(1);
-  }
-}
-
-@keyframes start-smoke-enter {
-  from {
-    opacity: 0;
-  }
-
-  60% {
-    opacity: 1;
-    animation-timing-function: ease-in-out;
-  }
-
-  to {
-    opacity: 1;
   }
 }
 
@@ -869,7 +826,6 @@ body {
 
 body.is-loading-preview #start-screen,
 body.is-loading-preview #scene,
-body.is-loading-preview #motion-permission,
 body.is-loading-preview #motion-permission-status,
 body.is-loading-preview #shake-test {
   visibility: hidden;
@@ -1000,7 +956,6 @@ body.is-loading-preview #loading-screen {
   border: 0;
 }
 
-#motion-permission,
 #motion-permission-status {
   position: fixed;
   z-index: 4;
@@ -1012,27 +967,8 @@ body.is-loading-preview #loading-screen {
   text-align: center;
 }
 
-#motion-permission[hidden],
 #motion-permission-status[hidden] {
   display: none;
-}
-
-#motion-permission {
-  bottom: max(1rem, env(safe-area-inset-bottom));
-  padding: 0.8rem 1rem;
-  border: 1px solid rgb(255 145 36 / 65%);
-  border-radius: 999px;
-  color: #fff;
-  background: rgb(19 14 18 / 88%);
-  box-shadow: 0 0.75rem 2rem rgb(0 0 0 / 35%);
-  cursor: pointer;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-}
-
-#motion-permission:disabled {
-  cursor: wait;
-  opacity: 0.7;
 }
 
 #motion-permission-status {
@@ -1093,8 +1029,6 @@ body.is-loading-preview #loading-screen {
   }
 
   .start-img,
-  #start-cup,
-  #start-smoke,
   #start-snowball {
     animation: none !important;
   }

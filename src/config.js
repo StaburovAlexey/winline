@@ -89,7 +89,7 @@ export const appConfig = {
       zVerticalGain: 1,
       lateralLiftRatio: 0,
       gravityTimeConstantSeconds: 0.22,
-      visualDuration: 0.28,
+      visualDuration: 1,
       visualAmplitude: 0.018,
       visualFrequency: 42,
       platformProfiles: {

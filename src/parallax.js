@@ -66,10 +66,10 @@ export function createParallaxController({
   target,
   canvas,
   backgroundElement,
-  permissionButton,
   permissionStatusElement,
   config,
   onShake,
+  onShakeEnd,
 }) {
   const enabled = config?.enabled !== false;
   const configuredLayers = config?.layers ?? {};
@@ -89,6 +89,9 @@ export function createParallaxController({
     ...(platformShakeConfig ?? {}),
   };
   const shakeCallback = typeof onShake === "function" ? onShake : () => {};
+  const shakeEndCallback = typeof onShakeEnd === "function"
+    ? onShakeEnd
+    : () => {};
   const finePointer = window.matchMedia(FINE_POINTER_QUERY);
   const reducedMotion = window.matchMedia(REDUCED_MOTION_QUERY);
   const eventController = new AbortController();
@@ -127,6 +130,7 @@ export function createParallaxController({
   let shakeRemaining = 0;
   let shakeElapsed = 0;
   let shakeStrength = 0;
+  let shakeActive = false;
   let disposed = false;
 
   function isDesktopMode() {
@@ -160,11 +164,21 @@ export function createParallaxController({
     resetMotionSamples();
   }
 
-  function clearCameraShake() {
+  function clearCameraShake(notify = false) {
+    const shouldNotify = notify && shakeActive;
     shakeRemaining = 0;
     shakeElapsed = 0;
     shakeStrength = 0;
+    shakeActive = false;
     cameraShakeOffset.set(0, 0);
+
+    if (shouldNotify) {
+      try {
+        shakeEndCallback();
+      } catch (error) {
+        console.error("Не удалось обработать окончание встряски", error);
+      }
+    }
   }
 
   function setInput(x, y) {
@@ -176,26 +190,11 @@ export function createParallaxController({
   }
 
   function hidePermissionUi() {
-    permissionButton.hidden = true;
-    permissionButton.disabled = false;
-    permissionButton.textContent = "Включить эффект движения";
-    permissionStatusElement.hidden = true;
-    permissionStatusElement.textContent = "";
-  }
-
-  function showPermissionButton(requesting = false, label = "Гироскоп") {
-    permissionButton.hidden = false;
-    permissionButton.disabled = requesting;
-    permissionButton.textContent = requesting
-      ? "Запрашиваем разрешение…"
-      : label;
     permissionStatusElement.hidden = true;
     permissionStatusElement.textContent = "";
   }
 
   function showPermissionError(message) {
-    permissionButton.hidden = true;
-    permissionButton.disabled = false;
     permissionStatusElement.textContent = message;
     permissionStatusElement.hidden = false;
   }
@@ -283,7 +282,7 @@ export function createParallaxController({
     shakeRemaining -= safeDeltaTime;
 
     if (shakeRemaining <= 0) {
-      clearCameraShake();
+      clearCameraShake(true);
       return;
     }
 
@@ -384,6 +383,7 @@ export function createParallaxController({
       Math.max(shakeConfig.visualDuration, 0.001),
     );
     shakeElapsed = 0;
+    shakeActive = true;
 
     try {
       shakeCallback({
@@ -707,7 +707,7 @@ export function createParallaxController({
   }
 
   function configureSensors() {
-    if (!enabled || isDesktopMode()) {
+    if (!enabled || isDesktopMode() || !motionOptIn) {
       hidePermissionUi();
       return;
     }
@@ -732,11 +732,7 @@ export function createParallaxController({
     const needsOrientation = hasOrientation && !orientationListening;
     const needsMotion = shakeConfig.enabled && !motionListening;
     if (!needsOrientation && !needsMotion) {
-      if (reducedMotion.matches && !motionOptIn) {
-        showPermissionButton(false, "Включить движение");
-      } else {
-        hidePermissionUi();
-      }
+      hidePermissionUi();
       return;
     }
 
@@ -760,36 +756,26 @@ export function createParallaxController({
       return;
     }
 
-    const permissionLabel = needsOrientation && needsMotion
-      ? "Разрешить датчики"
-      : needsMotion
-        ? "Разрешить встряску"
-        : "Разрешить гироскоп";
     if (
       orientationPermissionState === "requesting"
       || motionPermissionState === "requesting"
     ) {
-      showPermissionButton(true, permissionLabel);
       return;
     }
 
-    if (reducedMotion.matches && !motionOptIn) {
-      showPermissionButton(false, permissionLabel);
-    } else if (orientationRequestable || motionRequestable) {
-      showPermissionButton(false, permissionLabel);
-    } else {
+    if (!orientationRequestable && !motionRequestable) {
       enableSensors();
     }
   }
 
-  function requestSensorPermissions() {
+  async function requestSensorPermissions() {
     if (
       !enabled
       || isDesktopMode()
       || orientationPermissionState === "requesting"
       || motionPermissionState === "requesting"
     ) {
-      return;
+      return false;
     }
 
     const DeviceOrientation = window.DeviceOrientationEvent;
@@ -809,25 +795,25 @@ export function createParallaxController({
 
     if (!hasOrientation && !hasMotion) {
       showPermissionError("Датчики движения недоступны в этом браузере.");
-      return;
+      return false;
     }
 
     if (shakeConfig.enabled && !hasMotion) {
       showPermissionError("Акселерометр недоступен в этом браузере.");
-      return;
+      return false;
     }
 
     if (!requestOrientation && !requestMotion) {
       enableSensors();
       configureSensors();
-      return;
+      return orientationListening || motionListening;
     }
 
     if (!window.isSecureContext) {
       showPermissionError(
         "Для датчиков движения нужно открыть страницу через защищённое HTTPS-соединение.",
       );
-      return;
+      return false;
     }
 
     if (requestOrientation) {
@@ -840,13 +826,6 @@ export function createParallaxController({
     } else if (needsMotion) {
       motionPermissionState = "granted";
     }
-    const permissionLabel = needsOrientation && needsMotion
-      ? "Разрешить датчики"
-      : needsMotion
-        ? "Разрешить встряску"
-        : "Разрешить гироскоп";
-    showPermissionButton(true, permissionLabel);
-
     const callPermissionRequest = (DeviceEvent) => {
       try {
         return Promise.resolve(DeviceEvent.requestPermission());
@@ -861,32 +840,29 @@ export function createParallaxController({
       ? callPermissionRequest(DeviceMotion)
       : Promise.resolve("granted");
 
-    Promise.allSettled([orientationRequest, motionRequest]).then(
-      ([orientationResult, motionResult]) => {
-        if (requestOrientation) {
-          orientationPermissionState =
-            orientationResult.status === "fulfilled"
-            && orientationResult.value === "granted"
-              ? "granted"
-              : "denied";
-        }
-        if (requestMotion) {
-          motionPermissionState =
-            motionResult.status === "fulfilled"
-            && motionResult.value === "granted"
-              ? "granted"
-              : "denied";
-        }
+    const [orientationResult, motionResult] = await Promise.allSettled([
+      orientationRequest,
+      motionRequest,
+    ]);
 
-        enableSensors();
-        configureSensors();
-      },
-    );
-  }
+    if (requestOrientation) {
+      orientationPermissionState =
+        orientationResult.status === "fulfilled"
+        && orientationResult.value === "granted"
+          ? "granted"
+          : "denied";
+    }
+    if (requestMotion) {
+      motionPermissionState =
+        motionResult.status === "fulfilled"
+        && motionResult.value === "granted"
+          ? "granted"
+          : "denied";
+    }
 
-  function handlePermissionButtonClick() {
-    motionOptIn = true;
-    requestSensorPermissions();
+    enableSensors();
+    configureSensors();
+    return orientationListening || motionListening;
   }
 
   function handleInputModeChange() {
@@ -914,11 +890,6 @@ export function createParallaxController({
 
   canvas.addEventListener("pointermove", handlePointerMove, passiveEventOptions);
   canvas.addEventListener("pointerleave", () => resetInput(), eventOptions);
-  permissionButton.addEventListener(
-    "click",
-    handlePermissionButtonClick,
-    eventOptions,
-  );
   window.addEventListener(
     "blur",
     () => resetInput(true, true),
@@ -953,6 +924,15 @@ export function createParallaxController({
   configureSensors();
 
   return {
+    activateSensors() {
+      if (disposed) {
+        return Promise.resolve(false);
+      }
+
+      motionOptIn = true;
+      return requestSensorPermissions();
+    },
+
     triggerTestMotion({
       strength = 1,
       acceleration = { x: 4, y: 0, z: 0 },
