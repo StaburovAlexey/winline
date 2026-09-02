@@ -3,7 +3,9 @@ import * as THREE from "three";
 
 // GLTFLoader removes dots from node names: clip_low.001 becomes clip_low001.
 const CLIP_NAME_PATTERN = /^clip_low(?:[._]?\d+)?$/;
-const BALL_NAME_PATTERN = /^ball\d+$/;
+// Support both the legacy ball1/ball2 names and descriptive Blender names
+// such as ball_b_1 and ball_o used by the current model.
+const BALL_NAME_PATTERN = /^ball(?:\d+|(?:[._-][a-z0-9]+)+)?$/i;
 const STATIC_BASE_NAME_PATTERN = /^static_base(?:_\d+)?$/;
 const MIN_POINTER_DELTA_TIME = 1 / 240;
 const ENVIRONMENT_COLLISION_GROUPS = 0x00010006;
@@ -65,6 +67,18 @@ function createRandomHorizontalVector(upAxis) {
   }
 
   return vector.normalize();
+}
+
+function createRandomUnitVector() {
+  const vector = new THREE.Vector3(
+    Math.random() * 2 - 1,
+    Math.random() * 2 - 1,
+    Math.random() * 2 - 1,
+  );
+
+  return vector.lengthSq() > Number.EPSILON
+    ? vector.normalize()
+    : vector.set(1, 0, 0);
 }
 
 function randomFloat(min, max) {
@@ -268,6 +282,8 @@ class ModelPhysics {
     this.physicsActivated = false;
     this.activeBodyCount = 0;
     this.pendingLaunch = null;
+    this.pendingPredictionBurst = null;
+    this.lastPredictionBurstAt = -Infinity;
     this.pendingPointerImpulse = null;
     this.queuedShakeImpulse = null;
     this.interactionBatchCycle = 0;
@@ -1175,6 +1191,105 @@ class ModelPhysics {
     };
   }
 
+  applyPredictionBurst() {
+    const burstConfig = this.config.predictionBurst ?? {};
+    const now = performance.now();
+    const cooldownMs = Math.max(burstConfig.cooldownMs ?? 400, 0);
+
+    if (
+      this.bodies.length === 0
+      || this.pendingPredictionBurst
+      || now - this.lastPredictionBurstAt < cooldownMs
+    ) {
+      return false;
+    }
+
+    const items = [...this.bodies];
+    for (let index = items.length - 1; index > 0; index -= 1) {
+      const targetIndex = Math.floor(Math.random() * (index + 1));
+      [items[index], items[targetIndex]] = [items[targetIndex], items[index]];
+    }
+
+    const duration = Math.max(burstConfig.duration ?? 0.25, 0);
+    const lastIndex = Math.max(items.length - 1, 1);
+    this.pendingPredictionBurst = {
+      elapsed: 0,
+      nextIndex: 0,
+      items: items.map((item, index) => ({
+        item,
+        delay: (index / lastIndex) * duration,
+      })),
+    };
+    this.pendingPredictionBurst.items[0].delay = 0;
+    this.lastPredictionBurstAt = now;
+    this.physicsActivated = true;
+    this.vortexEnergy = Math.max(this.vortexEnergy, 0.35);
+    this.vortexLiftMultiplier = 0.35;
+    this.vortexInwardMultiplier = 0.35;
+    this.shakePressureMultiplier = 0;
+    this.settleCheckAccumulator = 0;
+    return true;
+  }
+
+  launchPredictionBody(item) {
+    const burstConfig = this.config.predictionBurst ?? {};
+    const wasActive = item.enabled && !item.settled;
+
+    if (!item.enabled) {
+      item.body.setEnabled(true);
+      item.enabled = true;
+    }
+    if (!wasActive) {
+      this.activeBodyCount += 1;
+    }
+
+    item.settled = false;
+    item.settleTime = 0;
+    this.resetFallState(item);
+    item.body.resetForces(false);
+    item.body.resetTorques(false);
+
+    this.bodyLaunchVelocity
+      .copy(createRandomHorizontalVector(this.upAxis))
+      .multiplyScalar(randomFloat(
+        burstConfig.horizontalVelocityMin ?? 0.8,
+        burstConfig.horizontalVelocityMax ?? 1.8,
+      ))
+      .addScaledVector(this.upAxis, randomFloat(
+        burstConfig.upwardVelocityMin ?? 5.2,
+        burstConfig.upwardVelocityMax ?? 6.3,
+      ));
+    item.body.setLinvel(this.bodyLaunchVelocity, true);
+
+    this.bodyLaunchAngularVelocity
+      .copy(createRandomUnitVector())
+      .multiplyScalar(randomFloat(
+        burstConfig.angularVelocityMin ?? 3.5,
+        burstConfig.angularVelocityMax ?? 6,
+      ));
+    item.body.setAngvel(this.bodyLaunchAngularVelocity, true);
+  }
+
+  processPendingPredictionBurst(deltaTime) {
+    const burst = this.pendingPredictionBurst;
+    if (!burst) {
+      return;
+    }
+
+    burst.elapsed += Math.max(deltaTime, 0);
+    while (
+      burst.nextIndex < burst.items.length
+      && burst.items[burst.nextIndex].delay <= burst.elapsed
+    ) {
+      this.launchPredictionBody(burst.items[burst.nextIndex].item);
+      burst.nextIndex += 1;
+    }
+
+    if (burst.nextIndex >= burst.items.length) {
+      this.pendingPredictionBurst = null;
+    }
+  }
+
   clampBodySpeeds() {
     for (const { body, enabled, settled } of this.bodies) {
       if (!enabled || settled) {
@@ -1663,11 +1778,16 @@ class ModelPhysics {
       ? this.pendingPointerImpulse.items.length -
           this.pendingPointerImpulse.nextIndex
       : 0;
+    const queuedPredictionBodies = this.pendingPredictionBurst
+      ? this.pendingPredictionBurst.items.length
+        - this.pendingPredictionBurst.nextIndex
+      : 0;
 
-    return queuedLaunchBodies + queuedPointerBodies;
+    return queuedLaunchBodies + queuedPointerBodies + queuedPredictionBodies;
   }
 
   update(deltaTime) {
+    this.processPendingPredictionBurst(deltaTime);
     const queuedBodies = this.getQueuedBodyCount();
     if (
       !this.physicsActivated ||
@@ -1761,6 +1881,7 @@ class ModelPhysics {
     this.shakePressureCells.clear();
     this.shakePressureCellPool.length = 0;
     this.pendingLaunch = null;
+    this.pendingPredictionBurst = null;
     this.pendingPointerImpulse = null;
     this.queuedShakeImpulse = null;
   }

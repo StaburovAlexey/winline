@@ -1,28 +1,122 @@
 <!doctype html>
 <html lang="ru">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#080b16" />
-    <title>Winline 3D Showcase</title>
-  </head>
-  <body>
-    <main id="app" aria-label="Winline 3D showcase">
-      <div id="scene" aria-hidden="true"></div>
-      <p id="status" role="status" aria-live="polite">Загрузка 3D-модели…</p>
-      <button id="motion-permission" type="button" hidden>
-        Гироскоп
-      </button>
-      <button id="shake-test" type="button" hidden>
-        Тест тряски
-      </button>
-      <p
-        id="motion-permission-status"
-        role="status"
-        aria-live="polite"
-        hidden
-      ></p>
-    </main>
-    <script type="module" src="/src/app.js"></script>
-  </body>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#080b16" />
+  <link rel="preload" href="font/WINLINE-SANS_REGULAR.TTF" as="font" type="font/ttf" crossorigin />
+  <link rel="preload" href="font/WINLINE-SANS_BOLD.TTF" as="font" type="font/ttf" crossorigin />
+  <link rel="preload" href="font/WINLINE-SANS_BOLD-ITALIC.TTF" as="font" type="font/ttf" crossorigin />
+  <link rel="preload" href="assets/details/winline-seeklogo%203.svg" as="image" type="image/svg+xml" />
+  <link rel="preload" href="assets/details/webp/image1282.webp" as="image" type="image/webp" />
+  <link rel="preload" href="assets/details/webp/Maskgroup.webp" as="image" type="image/webp" />
+  <link rel="preload" href="assets/details/webp/cup.webp" as="image" type="image/webp" />
+  <link rel="preload" href="assets/details/webp/smoke.webp" as="image" type="image/webp" />
+  <link rel="preload" href="assets/details/webp/trophy.webp" as="image" type="image/webp" />
+  <link rel="preload" href="assets/details/webp/camera.webp" as="image" type="image/webp" />
+  <link rel="preload" href="assets/details/webp/ball.webp" as="image" type="image/webp" />
+  <link rel="preload" href="assets/details/snowball3.webp" as="image" type="image/webp" />
+  <link rel="preload" href="assets/loading-backhround.webp" as="image" type="image/webp" />
+  <link rel="preload" href="assets/load-bar.png" as="image" type="image/png" />
+  <title>Winline 3D Showcase</title>
+</head>
+
+<body>
+  <main id="app" aria-label="Winline 3D showcase">
+    <section id="start-screen" aria-label="Начальный экран">
+      <img id="start-logo" src="assets/details/winline-seeklogo%203.svg" alt="Winline" />
+      <img id="start-headphone" class="start-img" src="assets/details/webp/image1282.webp" alt="">
+      <img id="start-keyboard" class="start-img" src="assets/details/webp/Maskgroup.webp" alt="">
+
+      <div id="start-cup-group" class="start-img" aria-hidden="true">
+        <img id="start-cup" src="assets/details/webp/cup.webp" alt="">
+        <img id="start-smoke" src="assets/details/webp/smoke.webp" alt="">
+      </div>
+
+
+      <img id="start-trophy" class="start-img" src="assets/details/webp/trophy.webp" alt="">
+      <img id="start-camera" class="start-img" src="assets/details/webp/camera.webp" alt="">
+      <img id="start-ball" class="start-img" src="assets/details/webp/ball.webp" alt="">
+      <div class="start-content">
+        <div id="start-snowball" aria-hidden="true">
+          <img id="start-snowball-image" src="assets/details/snowball3.webp" alt="">
+        </div>
+        <div class="container-text">
+          <h2 class="container-text__header">
+            <div class="container-text__header_first">ТВОЯ ИГРА</div>
+          </h2>
+          <div class="container-text__content">
+            <div class="container-text__header_second">НАЧИНАЕТСЯ</div>
+            <p class="container-text_mini">Каким будет твой год?<br/> Переходи дальше и получи предсказание,<br/> какой получится твоя
+              карьера в Winline.</p>
+            <button id="start-button" type="button">НАЧАТЬ</button>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section id="loading-screen" class="is-hidden" aria-label="Загрузка 3D-модели" aria-hidden="true">
+      <div class="loading-background" aria-hidden="true"></div>
+      <div class="loading-content">
+        <img
+          class="loading-logo"
+          data-src="assets/details/winline-seeklogo%203.svg"
+          alt="Winline"
+        />
+        <div
+          id="loading-bar"
+          class="loading-bar"
+          role="progressbar"
+          aria-label="Прогресс загрузки"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="0"
+        ></div>
+        <p id="loading-label" class="loading-label">Загрузка...</p>
+        <p id="loading-progress" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">0%</p>
+      </div>
+    </section>
+    <div id="scene-environment" aria-hidden="true">
+      <div class="scene-environment__plane">
+        <img class="scene-environment__background scene-environment__background--top" data-src="assets/main-page/background-top.webp" alt="">
+        <img class="scene-environment__background scene-environment__background--bottom" data-src="assets/main-page/background-bottom.webp" alt="">
+      </div>
+    </div>
+    <div id="scene-decorations" aria-hidden="true">
+      <img class="scene-decoration scene-decoration--top-center" data-src="assets/main-page/top-center.webp" alt="">
+      <div class="scene-decoration scene-decoration--left-center">
+        <img class="scene-left-center__layer scene-left-center__main" data-src="assets/main-page/left-center/main.webp" alt="">
+        <img class="scene-left-center__layer scene-left-center__mirror" data-src="assets/main-page/left-center/mirror.webp" alt="">
+        <img class="scene-left-center__layer scene-left-center__light" data-src="assets/main-page/left-center/light.webp" alt="">
+      </div>
+      <img class="scene-decoration scene-decoration--right-center" data-src="assets/main-page/right-center.webp" alt="">
+      <img class="scene-decoration scene-decoration--left-bottom" data-src="assets/main-page/left-bottom.webp" alt="">
+      <img class="scene-decoration scene-decoration--right-bottom" data-src="assets/main-page/right-bottom.webp" alt="">
+    </div>
+    <div id="scene" aria-hidden="true"></div>
+    <div id="scene-actions" class="scene-actions is-hidden">
+      <p id="scene-shake-hint" class="scene-shake-hint" hidden>Потряси телефон или нажми на кнопку</p>
+      <button id="prediction-button" class="scene-prediction-button" type="button">ПОЛУЧИТЬ ПРЕДСКАЗАНИЕ</button>
+    </div>
+    <div id="prediction-modal" class="prediction-modal" hidden>
+      <div class="prediction-modal__dialog" role="dialog" aria-modal="true" aria-label="Предсказание">
+        <img id="prediction-card-image" class="prediction-modal__card-image" alt="">
+        <p id="prediction-card-text" class="prediction-modal__text"></p>
+        <div class="prediction-modal__actions">
+          <button id="prediction-more-button" class="prediction-modal__button prediction-modal__button--primary" type="button">ПОЛУЧИТЬ ЕЩЕ</button>
+          <a class="prediction-modal__button prediction-modal__button--secondary" href="https://hh.ru/" target="_blank" rel="noopener noreferrer">ПЕРЕЙТИ НА HH.RU</a>
+        </div>
+      </div>
+    </div>
+    <button id="motion-permission" type="button" hidden>
+      Гироскоп
+    </button>
+    <button id="shake-test" type="button" hidden>
+      Тест тряски
+    </button>
+    <p id="motion-permission-status" role="status" aria-live="polite" hidden></p>
+  </main>
+  <script type="module" src="/src/app.js"></script>
+</body>
+
 </html>

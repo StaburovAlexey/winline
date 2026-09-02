@@ -1,20 +1,33 @@
 import * as THREE from "three";
 import Stats from "stats.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { appConfig } from "./config.js";
-import { createModelPhysics } from "./modelPhysics.js";
+import cardData from "./card.json";
 import { createParallaxController } from "./parallax.js";
+import "modern-normalize";
 import "./style.css";
 
-document.body.style.setProperty(
-  "--background-image",
-  `url("${import.meta.env.BASE_URL}assets/background.png")`,
-);
-
 const sceneElement = document.querySelector("#scene");
-const statusElement = document.querySelector("#status");
+const sceneAssetImages = document.querySelectorAll(
+  "#scene-environment img[data-src], #scene-decorations img[data-src]",
+);
+const startScreenElement = document.querySelector("#start-screen");
+const startButton = document.querySelector("#start-button");
+const loadingScreenElement = document.querySelector("#loading-screen");
+const loadingLogoElement = document.querySelector(".loading-logo");
+const loadingBarElement = document.querySelector("#loading-bar");
+const loadingLabelElement = document.querySelector("#loading-label");
+const loadingProgressElement = document.querySelector("#loading-progress");
+const sceneActionsElement = document.querySelector("#scene-actions");
+const sceneShakeHintElement = document.querySelector("#scene-shake-hint");
+const predictionButton = document.querySelector("#prediction-button");
+const predictionModal = document.querySelector("#prediction-modal");
+const predictionMoreButton = document.querySelector("#prediction-more-button");
+const predictionCardImage = document.querySelector("#prediction-card-image");
+const predictionCardText = document.querySelector("#prediction-card-text");
+const loadingScreenPreviewMode = document.body.classList.contains(
+  "is-loading-preview",
+);
 const motionPermissionButton = document.querySelector("#motion-permission");
 const shakeTestButton = document.querySelector("#shake-test");
 const motionPermissionStatusElement = document.querySelector(
@@ -23,12 +36,32 @@ const motionPermissionStatusElement = document.querySelector(
 
 if (
   !(sceneElement instanceof HTMLElement)
-  || !(statusElement instanceof HTMLElement)
+  || !(startScreenElement instanceof HTMLElement)
+  || !(startButton instanceof HTMLButtonElement)
+  || !(loadingScreenElement instanceof HTMLElement)
+  || !(loadingLogoElement instanceof HTMLImageElement)
+  || !(loadingBarElement instanceof HTMLElement)
+  || !(loadingLabelElement instanceof HTMLElement)
+  || !(loadingProgressElement instanceof HTMLElement)
+  || !(sceneActionsElement instanceof HTMLElement)
+  || !(sceneShakeHintElement instanceof HTMLElement)
+  || !(predictionButton instanceof HTMLButtonElement)
+  || !(predictionModal instanceof HTMLElement)
+  || !(predictionMoreButton instanceof HTMLButtonElement)
+  || !(predictionCardImage instanceof HTMLImageElement)
+  || !(predictionCardText instanceof HTMLElement)
   || !(motionPermissionButton instanceof HTMLButtonElement)
   || !(shakeTestButton instanceof HTMLButtonElement)
   || !(motionPermissionStatusElement instanceof HTMLElement)
 ) {
   throw new Error("Scene root elements are missing");
+}
+
+if (loadingScreenPreviewMode) {
+  prepareLoadingAssets();
+  loadingScreenElement.classList.remove("is-hidden");
+  loadingScreenElement.setAttribute("aria-hidden", "false");
+  startScreenElement.classList.add("is-hidden");
 }
 
 const scene = new THREE.Scene();
@@ -54,7 +87,8 @@ sceneElement.append(renderer.domElement);
 const statsRequested =
   new URLSearchParams(window.location.search).get("stats") === "1";
 const statsEnabled =
-  import.meta.env.DEV || statsRequested || appConfig.renderer.showStats;
+  !loadingScreenPreviewMode
+  && (import.meta.env.DEV || statsRequested || appConfig.renderer.showStats);
 const stats = statsEnabled ? new Stats() : null;
 const physicsStatsPanel = stats?.addPanel(
   new Stats.Panel("PHY", "#ff8", "#221"),
@@ -101,7 +135,222 @@ const parallax = createParallaxController({
   },
 });
 
-if (import.meta.env.DEV) {
+const hasShakeInput =
+  typeof window.DeviceMotionEvent !== "undefined"
+  && window.matchMedia("(pointer: coarse)").matches;
+sceneShakeHintElement.hidden = !hasShakeInput;
+
+const predictionStorageKey = "winline:prediction-deck:v1";
+const predictionCards = new Map(
+  Object.entries(cardData).filter(
+    ([cardId, card]) => /^\d+$/.test(cardId) && typeof card?.text === "string",
+  ),
+);
+const predictionCardIds = [...predictionCards.keys()];
+const predictionCardSignature = predictionCardIds.join(",");
+let predictionCardsPreloadPromise = null;
+
+function shuffleCardIds(cardIds) {
+  const shuffled = [...cardIds];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const targetIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[targetIndex]] = [
+      shuffled[targetIndex],
+      shuffled[index],
+    ];
+  }
+  return shuffled;
+}
+
+function createPredictionDeck(lastCardId = null) {
+  const remaining = shuffleCardIds(predictionCardIds);
+  if (
+    remaining.length > 1
+    && lastCardId !== null
+    && remaining[0] === lastCardId
+  ) {
+    const replacementIndex = remaining.findIndex(
+      (cardId) => cardId !== lastCardId,
+    );
+    [remaining[0], remaining[replacementIndex]] = [
+      remaining[replacementIndex],
+      remaining[0],
+    ];
+  }
+  return { remaining, lastCardId };
+}
+
+function loadPredictionDeck() {
+  try {
+    const savedState = JSON.parse(
+      window.localStorage.getItem(predictionStorageKey) ?? "null",
+    );
+    const remaining = savedState?.remaining;
+    const hasValidRemainingCards =
+      Array.isArray(remaining)
+      && new Set(remaining).size === remaining.length
+      && remaining.every((cardId) => predictionCards.has(cardId));
+    const hasValidLastCard =
+      savedState?.lastCardId === null
+      || predictionCards.has(savedState?.lastCardId);
+
+    if (
+      savedState?.signature === predictionCardSignature
+      && hasValidRemainingCards
+      && hasValidLastCard
+    ) {
+      return {
+        remaining: [...remaining],
+        lastCardId: savedState.lastCardId,
+      };
+    }
+  } catch (error) {
+    console.warn("Не удалось восстановить историю предсказаний", error);
+  }
+  return createPredictionDeck();
+}
+
+function savePredictionDeck(deck) {
+  try {
+    window.localStorage.setItem(
+      predictionStorageKey,
+      JSON.stringify({
+        signature: predictionCardSignature,
+        remaining: deck.remaining,
+        lastCardId: deck.lastCardId,
+      }),
+    );
+  } catch (error) {
+    console.warn("Не удалось сохранить историю предсказаний", error);
+  }
+}
+
+let predictionDeck = loadPredictionDeck();
+
+function takeNextPrediction() {
+  if (predictionDeck.remaining.length === 0) {
+    predictionDeck = createPredictionDeck(predictionDeck.lastCardId);
+  }
+
+  const cardId = predictionDeck.remaining.shift();
+  predictionDeck.lastCardId = cardId;
+  savePredictionDeck(predictionDeck);
+  return { cardId, ...predictionCards.get(cardId) };
+}
+
+function renderPredictionText(text) {
+  const content = document.createDocumentFragment();
+  for (const part of text.split(/(<br\s*\/?>)/gi)) {
+    if (/^<br\s*\/?>$/i.test(part)) {
+      content.append(document.createElement("br"));
+    } else if (part) {
+      content.append(document.createTextNode(part));
+    }
+  }
+  predictionCardText.replaceChildren(content);
+}
+
+function renderPrediction({ cardId, text }) {
+  predictionCardImage.src = `${import.meta.env.BASE_URL}assets/card/${cardId}.webp`;
+  renderPredictionText(text);
+}
+
+function preloadPredictionCardImages() {
+  if (predictionCardsPreloadPromise) {
+    return predictionCardsPreloadPromise;
+  }
+
+  predictionCardsPreloadPromise = Promise.all(
+    predictionCardIds.map((cardId) => {
+      const url = `${import.meta.env.BASE_URL}assets/card/${cardId}.webp`;
+      return new Promise((resolve) => {
+        const image = new Image();
+        loadingManager.itemStart(url);
+        image.onload = () => {
+          loadingManager.itemEnd(url);
+          resolve();
+        };
+        image.onerror = () => {
+          loadingManager.itemError(url);
+          loadingManager.itemEnd(url);
+          resolve();
+        };
+        image.src = url;
+      });
+    }),
+  );
+
+  return predictionCardsPreloadPromise;
+}
+
+let sceneAssetsPreloadPromise = null;
+
+function preloadSceneAssets() {
+  if (sceneAssetsPreloadPromise) {
+    return sceneAssetsPreloadPromise;
+  }
+
+  sceneAssetsPreloadPromise = Promise.all(
+    [...sceneAssetImages].map((image) => {
+      const url = `${import.meta.env.BASE_URL}${image.dataset.src}`;
+      return new Promise((resolve) => {
+        loadingManager.itemStart(url);
+        image.addEventListener("load", async () => {
+          if (typeof image.decode === "function") {
+            await image.decode().catch(() => {});
+          }
+          loadingManager.itemEnd(url);
+          resolve();
+        }, { once: true });
+        image.addEventListener("error", () => {
+          loadingManager.itemError(url);
+          loadingManager.itemEnd(url);
+          resolve();
+        }, { once: true });
+        image.src = url;
+      });
+    }),
+  );
+
+  return sceneAssetsPreloadPromise;
+}
+
+function closePredictionModal() {
+  predictionModal.hidden = true;
+}
+
+predictionModal.addEventListener("click", (event) => {
+  if (event.target === predictionModal) {
+    closePredictionModal();
+  }
+});
+
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !predictionModal.hidden) {
+    closePredictionModal();
+  }
+});
+
+function runPrediction() {
+  const burstStarted = modelPhysics?.applyPredictionBurst() === true;
+  if (burstStarted) {
+    renderPrediction(takeNextPrediction());
+    closePredictionModal();
+    predictionButton.disabled = true;
+    window.setTimeout(() => {
+      predictionButton.disabled = false;
+    }, appConfig.physics.predictionBurst.cooldownMs);
+    window.setTimeout(() => {
+      predictionModal.hidden = false;
+    }, 1000);
+  }
+  predictionButton.blur();
+}
+
+predictionButton.addEventListener("click", runPrediction);
+predictionMoreButton.addEventListener("click", runPrediction);
+
+if (import.meta.env.DEV && !loadingScreenPreviewMode) {
   const shakeTestCases = [
     {
       label: "телефон вправо",
@@ -139,24 +388,78 @@ if (import.meta.env.DEV) {
 
 let failedAssetUrl = null;
 let renderInfoLogged = false;
+let loadingProgress = 0;
+let modelLoadPromise = null;
+const minimumLoadingScreenDuration = 500;
 const clock = new THREE.Clock();
 const frameInterval = 1000 / Math.max(appConfig.renderer.maxFps, 1);
 let lastFrameTime = 0;
 
-function setStatus(message, state = "loading") {
-  statusElement.textContent = message;
-  statusElement.classList.toggle("is-hidden", state === "ready");
-  statusElement.classList.toggle("is-error", state === "error");
+function setLoadingProgress(value, { allowDecrease = false } = {}) {
+  const roundedValue = Math.round(value);
+  const nextValue = Math.min(
+    100,
+    Math.max(allowDecrease ? 0 : loadingProgress, roundedValue),
+  );
+  const loadedSegments = Math.floor(nextValue / 10);
+  loadingProgress = nextValue;
+  loadingBarElement.style.setProperty(
+    "--loading-fill",
+    `${loadedSegments * 9.5}%`,
+  );
+  loadingBarElement.setAttribute("aria-valuenow", String(nextValue));
+  loadingProgressElement.textContent = `${nextValue}%`;
+}
+
+function setLoadingError() {
+  loadingProgressElement.textContent = "ОШИБКА ЗАГРУЗКИ";
+  loadingLabelElement.textContent = "Ошибка загрузки";
+  loadingLabelElement.classList.add("is-error");
+  loadingBarElement.classList.add("is-error");
+  loadingBarElement.removeAttribute("role");
+  loadingBarElement.removeAttribute("aria-valuenow");
+}
+
+function wait(duration) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, duration);
+  });
+}
+
+function showLoadingScreen() {
+  prepareLoadingAssets();
+  loadingScreenElement.classList.remove("is-hidden");
+  loadingScreenElement.setAttribute("aria-hidden", "false");
+}
+
+function prepareLoadingAssets() {
+  if (!loadingLogoElement.hasAttribute("src")) {
+    loadingLogoElement.src = loadingLogoElement.dataset.src;
+  }
+
+  loadingScreenElement.style.setProperty(
+    "--loading-background-image",
+    'url("/assets/loading-backhround.webp")',
+  );
+  loadingBarElement.style.setProperty(
+    "--loading-bar-image",
+    'url("/assets/load-bar.png")',
+  );
+}
+
+function hideLoadingScreen() {
+  loadingScreenElement.classList.add("is-hidden");
+  loadingScreenElement.setAttribute("aria-hidden", "true");
 }
 
 const loadingManager = new THREE.LoadingManager();
-loadingManager.onStart = () => setStatus("Загрузка GLB-модели…");
+loadingManager.onStart = () => setLoadingProgress(1);
 loadingManager.onProgress = (_url, loaded, total) => {
   if (total > 0) {
-    setStatus(`Загрузка ресурсов: ${Math.round((loaded / total) * 100)}%`);
+    setLoadingProgress((loaded / total) * 90);
   }
 };
-loadingManager.onLoad = () => setStatus("Подготовка модели…");
+loadingManager.onLoad = () => setLoadingProgress(90);
 loadingManager.onError = (url) => {
   failedAssetUrl = url;
   console.error(`Не удалось загрузить ассет: ${url}`);
@@ -454,6 +757,12 @@ function animate(time) {
 }
 
 async function loadScene() {
+  const [{ DRACOLoader }, { GLTFLoader }, { createModelPhysics }] =
+    await Promise.all([
+      import("three/addons/loaders/DRACOLoader.js"),
+      import("three/addons/loaders/GLTFLoader.js"),
+      import("./modelPhysics.js"),
+    ]);
   const dracoLoader = new DRACOLoader(loadingManager);
   dracoLoader.setDecoderPath(appConfig.model.dracoDecoderPath);
   dracoLoader.preload();
@@ -487,10 +796,9 @@ async function loadScene() {
   scene.add(gltf.scene);
   model = gltf.scene;
   resize();
+  setLoadingProgress(95);
 
   if (appConfig.physics.enabled) {
-    setStatus("Подготовка физики…");
-
     try {
       modelPhysics = await createModelPhysics({
         root: model,
@@ -500,17 +808,14 @@ async function loadScene() {
       });
     } catch (error) {
       console.error("Не удалось подготовить физику модели", error);
-      setStatus("Модель загружена без физики", "error");
-      return;
     }
   }
 
   if (failedAssetUrl) {
-    setStatus("Модель загружена, но часть ресурсов недоступна", "error");
-    return;
+    console.warn("Модель загружена, но часть ресурсов недоступна", failedAssetUrl);
   }
 
-  setStatus("Модель готова", "ready");
+  setLoadingProgress(100);
 }
 
 window.addEventListener("resize", resize, { passive: true });
@@ -522,7 +827,54 @@ window.addEventListener("pagehide", () => {
 resize();
 renderer.setAnimationLoop(animate);
 
-loadScene().catch((error) => {
-  console.error("Не удалось загрузить Winline GLB", error);
-  setStatus("Не удалось загрузить 3D-модель", "error");
+function getModelLoadPromise() {
+  if (!modelLoadPromise) {
+    modelLoadPromise = loadScene().then(
+      () => ({ ok: true }),
+      (error) => {
+        console.error("Не удалось загрузить Winline GLB", error);
+        setLoadingError();
+        return { ok: false };
+      },
+    );
+  }
+
+  return modelLoadPromise;
+}
+
+let loadingTransitionStarted = false;
+
+startButton.addEventListener("click", async () => {
+  if (loadingTransitionStarted) {
+    return;
+  }
+
+  loadingTransitionStarted = true;
+  startButton.disabled = true;
+  const loadingScreenShownAt = performance.now();
+
+  showLoadingScreen();
+  startScreenElement.classList.add("is-hidden");
+  startButton.blur();
+
+  const [result] = await Promise.all([
+    getModelLoadPromise(),
+    preloadPredictionCardImages(),
+    preloadSceneAssets(),
+  ]);
+  if (!result.ok) {
+    return;
+  }
+
+  const elapsed = performance.now() - loadingScreenShownAt;
+  const remainingDuration = Math.max(
+    0,
+    minimumLoadingScreenDuration - elapsed,
+  );
+  if (remainingDuration > 0) {
+    await wait(remainingDuration);
+  }
+
+  hideLoadingScreen();
+  sceneActionsElement.classList.remove("is-hidden");
 });
