@@ -118,6 +118,17 @@ body {
   );
 }
 
+#scene-decorations {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 0;
+  width: max(calc(100vw + 48px), calc(177.6833dvh + 85.288px));
+  aspect-ratio: 3344 / 1882;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
 .scene-decoration--top-center {
   top: 20%;
   left: 0;
@@ -827,16 +838,136 @@ body.is-loading-preview #loading-screen {
     pointer-events: none;
   }
 }
-@media (max-width: 767px) {
+@media (min-width: 768px) and (max-width: 1024px) {
+  #scene-environment {
+    inset: 0;
+  }
+
+  .scene-environment__plane {
+    inset: 0;
+    width: auto;
+    height: auto;
+    aspect-ratio: auto;
+    transform: none;
+  }
+
+  .scene-environment__background--top {
+    top: 0;
+    left: -24px;
+    z-index: 1;
+    width: calc(100% + 48px);
+    height: 475px;
+    object-fit: cover;
+    object-position: center bottom;
+  }
+
   .scene-environment__background--bottom {
-    bottom: calc(50% - 50dvh - 24px);
+    top: 435px;
+    right: auto;
+    bottom: 0;
+    left: -24px;
+    z-index: 0;
+    width: calc(100% + 48px);
+    height: calc(100dvh - 435px);
+    object-fit: cover;
+    object-position: center top;
+  }
+
+  #scene-decorations {
+    inset: 0;
+    width: auto;
+    height: auto;
+    aspect-ratio: auto;
+    overflow: hidden;
+    transform: none;
   }
 
   .scene-decoration--top-center {
-    top: calc(50% - 50dvh + 128px);
-    right: calc(48% - 50vw);
+    top: 160px;
+    /* left: -60%; */
+    width: 1400px;
+  }
+
+  .scene-decoration--left-center {
+    top: 65px;
+    left: -100px;
+    width: 480px;
+  }
+
+  .scene-decoration--right-center {
+    top: 530px;
+    right: -100px;
+    width: 420px;
+  }
+
+  .scene-decoration--left-bottom {
+    bottom: -130px;
+    left: -190px;
+    width: 560px;
+  }
+
+  .scene-decoration--right-bottom {
+    right: -190px;
+    bottom: -90px;
+    width: 560px;
+  }
+}
+
+@media (max-width: 767px) {
+  #scene-environment {
+    inset: 0;
+    z-index: 0;
+  }
+
+  .scene-environment__plane {
+    inset: 0;
+    width: auto;
+    height: auto;
+    aspect-ratio: auto;
+    transform: none;
+  }
+
+  #scene-decorations {
+    inset: 0;
+    z-index: 1;
+    width: auto;
+    height: auto;
+    aspect-ratio: auto;
+    overflow: hidden;
+    transform: none;
+  }
+
+  #scene {
+    z-index: 2;
+  }
+
+  .scene-environment__background--top {
+    top: 0;
+    left: -24px;
+    z-index: 1;
+    width: calc(100% + 48px);
+    height: 350px;
+    object-fit: cover;
+    object-position: center bottom;
+  }
+
+  .scene-environment__background--bottom {
+    top: 330px;
+    right: auto;
+    bottom: 0;
+    left: -24px;
+    z-index: 0;
+    width: calc(100% + 48px);
+    height: calc(100dvh - 330px);
+    object-fit: cover;
+    object-position: center top;
+  }
+
+  .scene-decoration--top-center {
+    top: 128px;
+    right: -27px;
     left: auto;
-    width: 80%;
+    width: 1064px;
     transform: translate3d(
       var(--scene-top-parallax-x),
       var(--scene-top-parallax-y),
@@ -845,9 +976,9 @@ body.is-loading-preview #loading-screen {
   }
 
   .scene-decoration--left-center {
-    top: calc(50% - 50dvh + max(72px, calc(50dvh - 297px)));
-    left: calc(42% - 50vw - 15vw);
-    width: min(92vw, 360px);
+    top: 72px;
+    left: -167px;
+    width: 360px;
   }
 
   .scene-left-center__mirror,
@@ -856,20 +987,20 @@ body.is-loading-preview #loading-screen {
   }
 
   .scene-decoration--right-center {
-    top: calc(50% - 50dvh + max(410px, calc(50dvh + 41px)));
-    right: calc(43% - 50vw - 16vw);
-    width: min(70vw, 340px);
+    top: 420px;
+    right: -157px;
+    width: 281px;
   }
 
   .scene-decoration--left-bottom {
-    bottom: calc(50% - 50dvh - 76px);
-    left: calc(46% - 50vw - 45vw);
+    bottom: -76px;
+    left: -234px;
     width: 450px;
   }
 
   .scene-decoration--right-bottom {
-    right: calc(33% - 50vw - 13vw);
-    bottom: calc(50% - 50dvh - 31.5px);
+    right: -278px;
+    bottom: -31.5px;
     width: 450px;
   }
 

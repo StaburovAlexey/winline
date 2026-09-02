@@ -61,9 +61,9 @@ export const appConfig = {
     layers: {
       backgroundTop: 0.2,
       backgroundBottom: 0.55,
-      top: 0.45,
-      center: 0.85,
-      bottom: 1.2,
+      top: 0.25,
+      center: 0.4,
+      bottom: 0.55,
     },
     desktop: {
       cameraX: 0.035,
