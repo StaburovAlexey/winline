@@ -457,16 +457,16 @@ function showLoadingScreen() {
 
 function prepareLoadingAssets() {
   if (!loadingLogoElement.hasAttribute("src")) {
-    loadingLogoElement.src = loadingLogoElement.dataset.src;
+    loadingLogoElement.src = `${import.meta.env.BASE_URL}${loadingLogoElement.dataset.src}`;
   }
 
   loadingScreenElement.style.setProperty(
     "--loading-background-image",
-    'url("/assets/loading-backhround.webp")',
+    `url("${import.meta.env.BASE_URL}assets/loading-backhround.webp")`,
   );
   loadingBarElement.style.setProperty(
     "--loading-bar-image",
-    'url("/assets/load-bar.png")',
+    `url("${import.meta.env.BASE_URL}assets/load-bar.png")`,
   );
 }
 

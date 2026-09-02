@@ -379,11 +379,11 @@ body {
     transform: translate3d(0, 18px, 0) scale(0.98);
   }
 
-  60% {
+  /* 60% {
     opacity: 1;
     transform: translate3d(0, -2px, 0) scale(1);
     animation-timing-function: ease-in-out;
-  }
+  } */
 
   to {
     opacity: 1;
@@ -397,11 +397,11 @@ body {
     transform: translate(4%, calc(-4% + 18px)) scale(0.98);
   }
 
-  60% {
+  /* 60% {
     opacity: 1;
     transform: translate(4%, calc(-4% - 2px)) scale(1);
     animation-timing-function: ease-in-out;
-  }
+  } */
 
   to {
     opacity: 1;
