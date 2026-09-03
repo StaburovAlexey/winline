@@ -9,15 +9,15 @@
   <link rel="preload" href="font/WINLINE-SANS_BOLD.TTF" as="font" type="font/ttf" crossorigin />
   <link rel="preload" href="font/WINLINE-SANS_BOLD-ITALIC.TTF" as="font" type="font/ttf" crossorigin />
   <link rel="preload" href="assets/details/winline-seeklogo%203.svg" as="image" type="image/svg+xml" />
-  <link rel="preload" href="assets/details/webp/image1282.webp" as="image" type="image/webp" />
-  <link rel="preload" href="assets/details/webp/Maskgroup.webp" as="image" type="image/webp" />
-  <link rel="preload" href="assets/details/webp/cup.webp" as="image" type="image/webp" />
+  <link rel="preload" href="assets/details/png/image1282.png" as="image" type="image/png" />
+  <link rel="preload" href="assets/details/png/Maskgroup.png" as="image" type="image/png" />
+  <link rel="preload" href="assets/details/png/cup.png" as="image" type="image/png" />
   <link rel="preload" href="assets/details/webp/smoke-transparent.webp" as="image" type="image/webp" />
-  <link rel="preload" href="assets/details/webp/trophy.webp" as="image" type="image/webp" />
-  <link rel="preload" href="assets/details/webp/camera.webp" as="image" type="image/webp" />
-  <link rel="preload" href="assets/details/webp/ball.webp" as="image" type="image/webp" />
-  <link rel="preload" href="assets/details/snowball3.webp" as="image" type="image/webp" />
-  <link rel="preload" href="assets/loading-backhround.webp" as="image" type="image/webp" />
+  <link rel="preload" href="assets/details/png/trophy.png" as="image" type="image/png" />
+  <link rel="preload" href="assets/details/png/camera.png" as="image" type="image/png" />
+  <link rel="preload" href="assets/details/png/ball.png" as="image" type="image/png" />
+  <link rel="preload" href="assets/details/snowball3.png" as="image" type="image/png" />
+  <link rel="preload" href="assets/loading-backhround.png" as="image" type="image/png" />
   <link rel="preload" href="assets/load-bar.png" as="image" type="image/png" />
   <title>Winline 3D Showcase</title>
 </head>
@@ -26,21 +26,21 @@
   <main id="app" aria-label="Winline 3D showcase">
     <section id="start-screen" aria-label="Начальный экран">
       <img id="start-logo" src="assets/details/winline-seeklogo%203.svg" alt="Winline" />
-      <img id="start-headphone" class="start-img" src="assets/details/webp/image1282.webp" alt="">
-      <img id="start-keyboard" class="start-img" src="assets/details/webp/Maskgroup.webp" alt="">
+      <img id="start-headphone" class="start-img" src="assets/details/png/image1282.png" alt="">
+      <img id="start-keyboard" class="start-img" src="assets/details/png/Maskgroup.png" alt="">
 
       <div id="start-cup-group" class="start-img" aria-hidden="true">
-        <img id="start-cup" src="assets/details/webp/cup.webp" alt="">
+        <img id="start-cup" src="assets/details/png/cup.png" alt="">
         <img id="start-smoke" src="assets/details/webp/smoke-transparent.webp" alt="">
       </div>
 
 
-      <img id="start-trophy" class="start-img" src="assets/details/webp/trophy.webp" alt="">
-      <img id="start-camera" class="start-img" src="assets/details/webp/camera.webp" alt="">
-      <img id="start-ball" class="start-img" src="assets/details/webp/ball.webp" alt="">
+      <img id="start-trophy" class="start-img" src="assets/details/png/trophy.png" alt="">
+      <img id="start-camera" class="start-img" src="assets/details/png/camera.png" alt="">
+      <img id="start-ball" class="start-img" src="assets/details/png/ball.png" alt="">
       <div class="start-content">
         <div id="start-snowball" aria-hidden="true">
-          <img id="start-snowball-image" src="assets/details/snowball3.webp" alt="">
+          <img id="start-snowball-image" src="assets/details/snowball3.png" alt="">
         </div>
         <div class="container-text">
           <h2 class="container-text__header">
@@ -78,20 +78,19 @@
     </section>
     <div id="scene-environment" aria-hidden="true">
       <div class="scene-environment__plane">
-        <img class="scene-environment__background scene-environment__background--top" data-src="assets/main-page/background-top.webp" alt="">
-        <img class="scene-environment__background scene-environment__background--bottom" data-src="assets/main-page/background-bottom.webp" alt="">
+        <img class="scene-environment__background scene-environment__background--top" data-src="assets/main-page/background-top.png" alt="">
+        <img class="scene-environment__background scene-environment__background--bottom" data-src="assets/main-page/background-bottom.png" alt="">
       </div>
     </div>
     <div id="scene-decorations" aria-hidden="true">
-      <img class="scene-decoration scene-decoration--top-center" data-src="assets/main-page/top-center.webp" alt="">
+      <img class="scene-decoration scene-decoration--top-center" data-src="assets/main-page/top-center.png" alt="">
       <div class="scene-decoration scene-decoration--left-center">
-        <img class="scene-left-center__layer scene-left-center__main" data-src="assets/main-page/left-center/main.webp" alt="">
-        <img class="scene-left-center__layer scene-left-center__mirror" data-src="assets/main-page/left-center/mirror.webp" alt="">
-        <img class="scene-left-center__layer scene-left-center__light" data-src="assets/main-page/left-center/light.webp" alt="">
+        <img class="scene-left-center__layer scene-left-center__main" data-src="assets/main-page/left-center/main.png" alt="">
+        <img class="scene-left-center__layer scene-left-center__mirror" data-src="assets/main-page/left-center/mirror.png" alt="">
       </div>
-      <img class="scene-decoration scene-decoration--right-center" data-src="assets/main-page/right-center.webp" alt="">
-      <img class="scene-decoration scene-decoration--left-bottom" data-src="assets/main-page/left-bottom.webp" alt="">
-      <img class="scene-decoration scene-decoration--right-bottom" data-src="assets/main-page/right-bottom.webp" alt="">
+      <img class="scene-decoration scene-decoration--right-center" data-src="assets/main-page/right-center.png" alt="">
+      <img class="scene-decoration scene-decoration--left-bottom" data-src="assets/main-page/left-bottom.png" alt="">
+      <img class="scene-decoration scene-decoration--right-bottom" data-src="assets/main-page/right-bottom.png" alt="">
     </div>
     <div id="scene" aria-hidden="true"></div>
     <div id="scene-actions" class="scene-actions is-hidden">

@@ -4,6 +4,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { appConfig } from "./config.js";
 import cardData from "./card.json";
 import { createParallaxController } from "./parallax.js";
+import { createAudioController } from "./audio.js";
 import "modern-normalize";
 import "./style.css";
 
@@ -53,6 +54,19 @@ if (
   || !(motionPermissionStatusElement instanceof HTMLElement)
 ) {
   throw new Error("Scene root elements are missing");
+}
+
+const audio = createAudioController({
+  collisionSound: appConfig.physics.collisionSound,
+});
+
+for (const button of document.querySelectorAll("button")) {
+  if (button === startButton) {
+    continue;
+  }
+  button.addEventListener("click", () => {
+    audio.playButton();
+  });
 }
 
 if (loadingScreenPreviewMode) {
@@ -333,6 +347,7 @@ function handleShakeEnd() {
 
   renderPrediction(takeNextPrediction());
   predictionModal.hidden = false;
+  audio.playPrediction();
 }
 
 predictionModal.addEventListener("click", (event) => {
@@ -365,6 +380,7 @@ function runPrediction() {
     window.setTimeout(() => {
       predictionModal.hidden = false;
       predictionRevealPending = false;
+      audio.playPrediction();
     }, 1000);
   }
   predictionButton.blur();
@@ -462,7 +478,7 @@ function prepareLoadingAssets() {
 
   loadingScreenElement.style.setProperty(
     "--loading-background-image",
-    `url("${import.meta.env.BASE_URL}assets/loading-backhround.webp")`,
+    `url("${import.meta.env.BASE_URL}assets/loading-backhround.png")`,
   );
   loadingBarElement.style.setProperty(
     "--loading-bar-image",
@@ -828,6 +844,9 @@ async function loadScene() {
         camera,
         canvas: renderer.domElement,
         config: appConfig.physics,
+        onBodyCollision: ({ impactSpeed }) => {
+          audio.playRandomChip({ impactSpeed });
+        },
       });
     } catch (error) {
       console.error("Не удалось подготовить физику модели", error);
@@ -846,6 +865,7 @@ window.addEventListener("pagehide", () => {
   renderer.setAnimationLoop(null);
   modelPhysics?.dispose();
   parallax.dispose();
+  audio.dispose();
 }, { once: true });
 resize();
 renderer.setAnimationLoop(animate);
@@ -874,6 +894,8 @@ startButton.addEventListener("click", async () => {
 
   loadingTransitionStarted = true;
   startButton.disabled = true;
+  const audioReadyPromise = audio.enable();
+  audio.playButton();
   void parallax.activateSensors().catch((error) => {
     console.error("Не удалось включить датчики движения", error);
   });
@@ -887,6 +909,7 @@ startButton.addEventListener("click", async () => {
     getModelLoadPromise(),
     preloadPredictionCardImages(),
     preloadSceneAssets(),
+    audioReadyPromise,
   ]);
   if (!result.ok) {
     return;

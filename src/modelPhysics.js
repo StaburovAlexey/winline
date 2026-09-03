@@ -254,6 +254,7 @@ class ModelPhysics {
     camera,
     canvas,
     config,
+    onBodyCollision = null,
     sphereColliderNode,
     movingNodes,
     staticNodes,
@@ -263,11 +264,19 @@ class ModelPhysics {
     this.camera = camera;
     this.canvas = canvas;
     this.config = config;
+    this.onBodyCollision =
+      typeof onBodyCollision === "function" ? onBodyCollision : null;
     this.world = new RAPIER.World(config.gravity);
     this.world.timestep = config.fixedTimeStep;
     this.world.maxCcdSubsteps = config.ccdSubsteps;
+    this.eventQueue = new RAPIER.EventQueue(true);
     this.bodies = [];
+    this.bodyByColliderHandle = new Map();
+    this.collisionPairStates = new Map();
     this.floorColliderHandles = new Set();
+    this.sphereCollider = null;
+    this.sphereColliderHandle = null;
+    this.lastCollisionSoundAt = -Infinity;
     this.accumulator = 0;
     this.elapsedTime = 0;
     this.vortexEnergy = 0;
@@ -346,7 +355,7 @@ class ModelPhysics {
     this.vortexCenter = sphereBounds.getCenter(new THREE.Vector3());
     this.vortexRadius = Math.max(sphereSize.x, sphereSize.z) * 0.5;
 
-    createStaticTrimesh(
+    const sphereCollider = createStaticTrimesh(
       this.world,
       sphereColliderNode,
       rootInverseWorldMatrix,
@@ -354,6 +363,8 @@ class ModelPhysics {
       config.friction,
       config.sphereContactSkin,
     );
+    this.sphereCollider = sphereCollider;
+    this.sphereColliderHandle = sphereCollider.handle;
     staticNodes.forEach((node) => {
       const collider = staticBaseColliderNodes.has(node)
         ? createStaticBaseCuboid(
@@ -415,7 +426,8 @@ class ModelPhysics {
       .setRestitution(this.config.restitution)
       .setCollisionGroups(
         isBall ? BALL_COLLISION_GROUPS : MOVING_COLLISION_GROUPS,
-      );
+      )
+      .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
 
     const collider = this.world.createCollider(colliderData.descriptor, body);
 
@@ -447,7 +459,7 @@ class ModelPhysics {
           hashName(`${node.name}:vortex-radius`),
       );
 
-    this.bodies.push({
+    const item = {
       node,
       body,
       collider,
@@ -537,9 +549,11 @@ class ModelPhysics {
         this.config.launchSpinSpeedMax,
         hashName(`${node.name}:spin-speed`),
       ),
-    });
+    };
 
-    this.initializeFallProfile(this.bodies[this.bodies.length - 1]);
+    this.bodies.push(item);
+    this.bodyByColliderHandle.set(collider.handle, item);
+    this.initializeFallProfile(item);
   }
 
   initializeFallProfile(item) {
@@ -1766,6 +1780,150 @@ class ModelPhysics {
     }
   }
 
+  getCollisionPairKey(firstHandle, secondHandle) {
+    return firstHandle < secondHandle
+      ? `${firstHandle}:${secondHandle}`
+      : `${secondHandle}:${firstHandle}`;
+  }
+
+  getCollisionImpactSpeed(
+    firstHandle,
+    secondHandle,
+    firstBody,
+    secondBody,
+  ) {
+    const firstCollider = firstBody?.collider
+      ?? (firstHandle === this.sphereColliderHandle
+        ? this.sphereCollider
+        : null);
+    const secondCollider = secondBody?.collider
+      ?? (secondHandle === this.sphereColliderHandle
+        ? this.sphereCollider
+        : null);
+    if (!firstCollider || !secondCollider) {
+      return 0;
+    }
+
+    let totalImpulse = 0;
+    this.world.contactPair(firstCollider, secondCollider, (manifold) => {
+      const contactCount = manifold.numContacts();
+      for (let index = 0; index < contactCount; index += 1) {
+        totalImpulse += Math.max(manifold.contactImpulse(index), 0);
+      }
+    });
+
+    let effectiveMass = firstBody?.mass ?? secondBody?.mass ?? 0;
+    if (firstBody && secondBody) {
+      const combinedMass = firstBody.mass + secondBody.mass;
+      effectiveMass = combinedMass > Number.EPSILON
+        ? (firstBody.mass * secondBody.mass) / combinedMass
+        : 0;
+    }
+
+    return effectiveMass > Number.EPSILON
+      ? totalImpulse / effectiveMass
+      : 0;
+  }
+
+  getSphereWallImpactSpeed(item) {
+    const position = item.body.translation();
+    const velocity = item.body.linvel();
+    const offsetX = position.x - this.vortexCenter.x;
+    const offsetY = position.y - this.vortexCenter.y;
+    const offsetZ = position.z - this.vortexCenter.z;
+    const distance = Math.hypot(offsetX, offsetY, offsetZ);
+    if (distance <= Number.EPSILON) {
+      return 0;
+    }
+
+    return Math.max(
+      (velocity.x * offsetX
+        + velocity.y * offsetY
+        + velocity.z * offsetZ) / distance,
+      0,
+    );
+  }
+
+  drainCollisionEvents() {
+    this.eventQueue.drainCollisionEvents((firstHandle, secondHandle, started) => {
+      if (!this.onBodyCollision) {
+        return;
+      }
+
+      const firstBody = this.bodyByColliderHandle.get(firstHandle);
+      const secondBody = this.bodyByColliderHandle.get(secondHandle);
+      const isBodyCollision = Boolean(firstBody && secondBody);
+      const isSphereWallCollision = Boolean(
+        (firstBody && secondHandle === this.sphereColliderHandle)
+        || (secondBody && firstHandle === this.sphereColliderHandle),
+      );
+      if (!isBodyCollision && !isSphereWallCollision) {
+        return;
+      }
+
+      const now = this.elapsedTime * 1000;
+      const pairKey = this.getCollisionPairKey(firstHandle, secondHandle);
+      let pairState = this.collisionPairStates.get(pairKey);
+      if (!pairState) {
+        pairState = {
+          lastPlayedAt: -Infinity,
+          lastSeparatedAt: -Infinity,
+        };
+        this.collisionPairStates.set(pairKey, pairState);
+      }
+
+      if (!started) {
+        pairState.lastSeparatedAt = now;
+        return;
+      }
+
+      if (
+        (firstBody && (!firstBody.enabled || firstBody.settled))
+        || (secondBody && (!secondBody.enabled || secondBody.settled))
+      ) {
+        return;
+      }
+
+      const soundConfig = this.config.collisionSound ?? {};
+      const globalCooldownMs = Math.max(
+        soundConfig.globalCooldownMs ?? 180,
+        0,
+      );
+      const pairCooldownMs = Math.max(
+        soundConfig.pairCooldownMs ?? 700,
+        0,
+      );
+      const rearmDelayMs = Math.max(soundConfig.rearmDelayMs ?? 250, 0);
+      if (
+        now - this.lastCollisionSoundAt < globalCooldownMs
+        || now - pairState.lastPlayedAt < pairCooldownMs
+        || now - pairState.lastSeparatedAt < rearmDelayMs
+      ) {
+        return;
+      }
+
+      const impactSpeed = isBodyCollision
+        ? this.getCollisionImpactSpeed(
+            firstHandle,
+            secondHandle,
+            firstBody,
+            secondBody,
+          )
+        : this.getSphereWallImpactSpeed(firstBody ?? secondBody);
+      const minImpactSpeed = Math.max(soundConfig.minImpactSpeed ?? 0.45, 0);
+      if (impactSpeed < minImpactSpeed) {
+        return;
+      }
+
+      this.lastCollisionSoundAt = now;
+      pairState.lastPlayedAt = now;
+      this.onBodyCollision({
+        type: isBodyCollision ? "body" : "sphere-wall",
+        impactSpeed,
+      });
+    });
+  }
+
   getPerformanceSnapshot() {
     return this.performanceSnapshot;
   }
@@ -1846,7 +2004,8 @@ class ModelPhysics {
       this.elapsedTime += fixedTimeStep;
       this.applyFluidMotion(fixedTimeStep);
       const worldStepStartTime = performance.now();
-      this.world.step();
+      this.world.step(this.eventQueue);
+      this.drainCollisionEvents();
       worldStepTime += performance.now() - worldStepStartTime;
       this.settleCheckAccumulator += fixedTimeStep;
       if (
@@ -1876,8 +2035,11 @@ class ModelPhysics {
 
   dispose() {
     this.eventController.abort();
+    this.eventQueue.free();
     this.world.free();
     this.bodies.length = 0;
+    this.bodyByColliderHandle.clear();
+    this.collisionPairStates.clear();
     this.shakePressureCells.clear();
     this.shakePressureCellPool.length = 0;
     this.pendingLaunch = null;
@@ -1887,7 +2049,13 @@ class ModelPhysics {
   }
 }
 
-export async function createModelPhysics({ root, camera, canvas, config }) {
+export async function createModelPhysics({
+  root,
+  camera,
+  canvas,
+  config,
+  onBodyCollision,
+}) {
   await initializeRapier();
 
   const sphereColliderNode = root.getObjectByName(config.sphereColliderName);
@@ -1937,6 +2105,7 @@ export async function createModelPhysics({ root, camera, canvas, config }) {
     camera,
     canvas,
     config,
+    onBodyCollision,
     sphereColliderNode,
     movingNodes,
     staticNodes: [...staticNodes],

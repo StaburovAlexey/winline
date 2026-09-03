@@ -29,8 +29,8 @@ export const appConfig = {
 
     fit: {
       // 1 = заполнить 100% ширины, 0.9 = оставить по 5% с каждой стороны.
-      mobileWidthFill: 1,
-      desktopPadding: 1,
+      mobileWidthFill: 1.2,
+      desktopPadding: 0.8,
       // Смещение задаёт ракурс и масштабируется вместе с дистанцией камеры.
       positionOffset: { x: 0, y: 0.8, z: 0 },
       targetOffset: { x: 0, y: 0, z: 0 },
@@ -143,6 +143,17 @@ export const appConfig = {
     sphereContactSkin: 0,
     staticBaseColliderThickness: 0.12,
     staticBaseColliderContactSkin: 0.01,
+    collisionSound: {
+      minImpactSpeed: 0.45,
+      globalCooldownMs: 180,
+      pairCooldownMs: 700,
+      rearmDelayMs: 250,
+      minVolume: 0.25,
+      maxVolume: 0.85,
+      fullVolumeImpactSpeed: 2,
+      playbackRateMin: 0.96,
+      playbackRateMax: 1.04,
+    },
     linearDamping: 2,
     angularDamping: 2.5,
     flightAngularDamping: 0.65,

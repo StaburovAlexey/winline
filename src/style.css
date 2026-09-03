@@ -173,16 +173,9 @@ body {
 
 .scene-left-center__mirror {
   top: 47.45%;
-  left: 8.52%;
+  left: 20%;
   z-index: 1;
   width: 78.45%;
-}
-
-.scene-left-center__light {
-  top: 46%;
-  left: 25.05%;
-  z-index: 0;
-  width: 76.43%;
 }
 
 .scene-decoration--right-center {
@@ -302,7 +295,7 @@ body {
 #start-keyboard {
   width: clamp(85px, 11.727%, 196.087890625px);
   top: 24%;
-  left: -1.5%;
+  left: -2%;
 }
 #start-cup-group {
   width: clamp(62px, 8.732%, 146px);
@@ -1335,8 +1328,7 @@ body.is-loading-preview #loading-screen {
     width: 360px;
   }
 
-  .scene-left-center__mirror,
-  .scene-left-center__light {
+  .scene-left-center__mirror {
     display: none;
   }
 
