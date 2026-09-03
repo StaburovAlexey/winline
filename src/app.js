@@ -850,8 +850,8 @@ async function loadScene() {
         camera,
         canvas: renderer.domElement,
         config: appConfig.physics,
-        onBodyCollision: ({ impactSpeed }) => {
-          audio.playRandomChip({ impactSpeed });
+        onBodyCollision: ({ type, impactSpeed }) => {
+          audio.playCollision({ type, impactSpeed });
         },
       });
     } catch (error) {

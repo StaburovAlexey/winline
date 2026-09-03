@@ -1,10 +1,15 @@
 const audioUrls = {
   button: `${import.meta.env.BASE_URL}music/button.wav`,
   prediction: `${import.meta.env.BASE_URL}music/prediction.wav`,
+  chip1: `${import.meta.env.BASE_URL}music/chip1.mp3`,
   chip2: `${import.meta.env.BASE_URL}music/chip2.mp3`,
   chip3: `${import.meta.env.BASE_URL}music/chip3.mp3`,
 };
-const chipEffects = ["chip2", "chip3"];
+const collisionEffects = {
+  base: "chip1",
+  body: "chip2",
+  sphere: "chip3",
+};
 
 function getAudioContextConstructor() {
   return window.AudioContext ?? window.webkitAudioContext ?? null;
@@ -175,7 +180,12 @@ export function createAudioController({ collisionSound = {} } = {}) {
     play("prediction");
   }
 
-  function playRandomChip({ impactSpeed } = {}) {
+  function playCollision({ type, impactSpeed } = {}) {
+    const effectName = collisionEffects[type];
+    if (!effectName) {
+      return;
+    }
+
     const normalizedImpact = clamp(
       ((Number.isFinite(impactSpeed) ? impactSpeed : minImpactSpeed)
         - minImpactSpeed)
@@ -188,7 +198,7 @@ export function createAudioController({ collisionSound = {} } = {}) {
     const playbackRate = playbackRateMin
       + Math.random() * (playbackRateMax - playbackRateMin);
 
-    play(chipEffects[Math.floor(Math.random() * chipEffects.length)], {
+    play(effectName, {
       volume,
       playbackRate,
     });
@@ -210,7 +220,7 @@ export function createAudioController({ collisionSound = {} } = {}) {
     enable,
     playButton,
     playPrediction,
-    playRandomChip,
+    playCollision,
     dispose,
   };
 }

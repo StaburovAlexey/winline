@@ -9,8 +9,8 @@ const BALL_NAME_PATTERN = /^ball(?:\d+|(?:[._-][a-z0-9]+)+)?$/i;
 const STATIC_BASE_NAME_PATTERN = /^static_base(?:_\d+)?$/;
 const MIN_POINTER_DELTA_TIME = 1 / 240;
 const ENVIRONMENT_COLLISION_GROUPS = 0x00010006;
-const MOVING_COLLISION_GROUPS = 0x00020001;
-const BALL_COLLISION_GROUPS = 0x00040005;
+const MOVING_COLLISION_GROUPS = 0x00020007;
+const BALL_COLLISION_GROUPS = 0x00040007;
 
 let rapierInitialization = null;
 
@@ -272,6 +272,7 @@ class ModelPhysics {
     this.eventQueue = new RAPIER.EventQueue(true);
     this.bodies = [];
     this.bodyByColliderHandle = new Map();
+    this.staticColliderByHandle = new Map();
     this.collisionPairStates = new Map();
     this.floorColliderHandles = new Set();
     this.sphereCollider = null;
@@ -384,6 +385,7 @@ class ModelPhysics {
             config.floorFriction,
           );
       this.floorColliderHandles.add(collider.handle);
+      this.staticColliderByHandle.set(collider.handle, collider);
     });
     movingNodes.forEach((node) => this.createDynamicBody(node));
     this.bindPointerEvents();
@@ -1795,11 +1797,11 @@ class ModelPhysics {
     const firstCollider = firstBody?.collider
       ?? (firstHandle === this.sphereColliderHandle
         ? this.sphereCollider
-        : null);
+        : this.staticColliderByHandle.get(firstHandle));
     const secondCollider = secondBody?.collider
       ?? (secondHandle === this.sphereColliderHandle
         ? this.sphereCollider
-        : null);
+        : this.staticColliderByHandle.get(secondHandle));
     if (!firstCollider || !secondCollider) {
       return 0;
     }
@@ -1844,20 +1846,45 @@ class ModelPhysics {
     );
   }
 
+  reactivateSettledCollisionBody(item, otherBody) {
+    if (
+      !item?.enabled
+      || !item.settled
+      || !otherBody?.enabled
+      || otherBody.settled
+    ) {
+      return;
+    }
+
+    item.body.wakeUp();
+    item.settled = false;
+    item.settleTime = 0;
+    this.activeBodyCount += 1;
+  }
+
   drainCollisionEvents() {
     this.eventQueue.drainCollisionEvents((firstHandle, secondHandle, started) => {
-      if (!this.onBodyCollision) {
-        return;
-      }
-
       const firstBody = this.bodyByColliderHandle.get(firstHandle);
       const secondBody = this.bodyByColliderHandle.get(secondHandle);
       const isBodyCollision = Boolean(firstBody && secondBody);
-      const isSphereWallCollision = Boolean(
+      const isSphereCollision = Boolean(
         (firstBody && secondHandle === this.sphereColliderHandle)
         || (secondBody && firstHandle === this.sphereColliderHandle),
       );
-      if (!isBodyCollision && !isSphereWallCollision) {
+      const isBaseCollision = Boolean(
+        (firstBody && this.floorColliderHandles.has(secondHandle))
+        || (secondBody && this.floorColliderHandles.has(firstHandle)),
+      );
+      if (!isBodyCollision && !isSphereCollision && !isBaseCollision) {
+        return;
+      }
+
+      if (started && isBodyCollision) {
+        this.reactivateSettledCollisionBody(firstBody, secondBody);
+        this.reactivateSettledCollisionBody(secondBody, firstBody);
+      }
+
+      if (!this.onBodyCollision) {
         return;
       }
 
@@ -1878,8 +1905,10 @@ class ModelPhysics {
       }
 
       if (
-        (firstBody && (!firstBody.enabled || firstBody.settled))
-        || (secondBody && (!secondBody.enabled || secondBody.settled))
+        (firstBody && !firstBody.enabled)
+        || (secondBody && !secondBody.enabled)
+        || (firstBody?.settled && secondBody?.settled)
+        || (!isBodyCollision && (firstBody ?? secondBody)?.settled)
       ) {
         return;
       }
@@ -1902,14 +1931,14 @@ class ModelPhysics {
         return;
       }
 
-      const impactSpeed = isBodyCollision
-        ? this.getCollisionImpactSpeed(
+      const impactSpeed = isSphereCollision
+        ? this.getSphereWallImpactSpeed(firstBody ?? secondBody)
+        : this.getCollisionImpactSpeed(
             firstHandle,
             secondHandle,
             firstBody,
             secondBody,
-          )
-        : this.getSphereWallImpactSpeed(firstBody ?? secondBody);
+          );
       const minImpactSpeed = Math.max(soundConfig.minImpactSpeed ?? 0.45, 0);
       if (impactSpeed < minImpactSpeed) {
         return;
@@ -1918,7 +1947,7 @@ class ModelPhysics {
       this.lastCollisionSoundAt = now;
       pairState.lastPlayedAt = now;
       this.onBodyCollision({
-        type: isBodyCollision ? "body" : "sphere-wall",
+        type: isBodyCollision ? "body" : isSphereCollision ? "sphere" : "base",
         impactSpeed,
       });
     });
@@ -2039,6 +2068,7 @@ class ModelPhysics {
     this.world.free();
     this.bodies.length = 0;
     this.bodyByColliderHandle.clear();
+    this.staticColliderByHandle.clear();
     this.collisionPairStates.clear();
     this.shakePressureCells.clear();
     this.shakePressureCellPool.length = 0;
