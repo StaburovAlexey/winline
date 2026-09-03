@@ -5,6 +5,7 @@ import { appConfig } from "./config.js";
 import cardData from "./card.json";
 import { createParallaxController } from "./parallax.js";
 import { createAudioController } from "./audio.js";
+import { createStartScreenMotion } from "./start-screen-motion.js";
 import "modern-normalize";
 import "./style.css";
 
@@ -55,6 +56,11 @@ if (
 ) {
   throw new Error("Scene root elements are missing");
 }
+
+const startScreenMotion = createStartScreenMotion({
+  root: startScreenElement,
+  targets: [...startScreenElement.querySelectorAll(".start-img")],
+});
 
 const audio = createAudioController({
   collisionSound: appConfig.physics.collisionSound,
@@ -865,6 +871,7 @@ window.addEventListener("pagehide", () => {
   renderer.setAnimationLoop(null);
   modelPhysics?.dispose();
   parallax.dispose();
+  startScreenMotion.dispose();
   audio.dispose();
 }, { once: true });
 resize();

@@ -255,37 +255,82 @@ body {
   transform: translateX(-50%);
 }
 .start-img {
+  --start-float-x: 0px;
+  --start-float-y: 6px;
+  --start-float-rotation: 0deg;
+  --start-float-duration: 5.8s;
+  --start-float-delay: 1.2s;
+  --start-bounce-x: 0px;
+  --start-bounce-y: 0px;
+  --start-bounce-rotation: 0deg;
   object-fit: contain;
   position: absolute;
   display: block;
   height: auto;
   /* max-height: 42%; */
-  animation: start-object-enter 900ms cubic-bezier(0.22, 1, 0.36, 1) var(--start-enter-delay, 0ms) both;
-  will-change: opacity, transform;
+  translate: var(--start-bounce-x) var(--start-bounce-y);
+  rotate: var(--start-bounce-rotation);
+  animation-name: start-object-enter, start-object-float;
+  animation-duration: 900ms, var(--start-float-duration);
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1), ease-in-out;
+  animation-delay: var(--start-enter-delay, 0ms), var(--start-float-delay);
+  animation-iteration-count: 1, infinite;
+  animation-fill-mode: both, none;
+  will-change: opacity, transform, translate, rotate;
 }
 
 #start-headphone {
   --start-enter-delay: 40ms;
+  --start-float-delay: 1.35s;
+  --start-float-duration: 5.6s;
+  --start-float-x: 2px;
+  --start-float-y: 7px;
+  --start-float-rotation: 0.75deg;
 }
 
 #start-keyboard {
   --start-enter-delay: 120ms;
+  --start-float-delay: 1.85s;
+  --start-float-duration: 6.6s;
+  --start-float-x: -2px;
+  --start-float-y: 8px;
+  --start-float-rotation: -0.9deg;
 }
 
 #start-cup-group {
   --start-enter-delay: 200ms;
+  --start-float-delay: 1.55s;
+  --start-float-duration: 5.4s;
+  --start-float-x: 1.5px;
+  --start-float-y: 6px;
+  --start-float-rotation: 0.7deg;
 }
 
 #start-ball {
   --start-enter-delay: 160ms;
+  --start-float-delay: 1.75s;
+  --start-float-duration: 5s;
+  --start-float-x: -1.5px;
+  --start-float-y: 8px;
+  --start-float-rotation: -1.1deg;
 }
 
 #start-camera {
   --start-enter-delay: 280ms;
+  --start-float-delay: 1.3s;
+  --start-float-duration: 6.2s;
+  --start-float-x: 2px;
+  --start-float-y: 7px;
+  --start-float-rotation: 0.8deg;
 }
 
 #start-trophy {
   --start-enter-delay: 80ms;
+  --start-float-delay: 1.95s;
+  --start-float-duration: 5.8s;
+  --start-float-x: -2px;
+  --start-float-y: 10px;
+  --start-float-rotation: -0.8deg;
 }
 #start-headphone {
   width: clamp(93px, 10.6266%, 177.66744995117188px);
@@ -381,6 +426,21 @@ body {
   to {
     opacity: 1;
     transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes start-object-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+
+  50% {
+    transform: translate3d(
+      var(--start-float-x),
+      calc(-1 * var(--start-float-y)),
+      0
+    ) rotate(var(--start-float-rotation));
   }
 }
 
@@ -1024,6 +1084,11 @@ body.is-loading-preview #loading-screen {
   .start-img,
   #start-snowball {
     animation: none !important;
+  }
+
+  .start-img {
+    translate: none;
+    rotate: none;
   }
 }
 
