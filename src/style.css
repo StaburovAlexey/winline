@@ -187,10 +187,10 @@ body {
   width: 64.99%;
 } */
 .scene-left-center__light {
-    top: 46.45%;
-    left: 25.46%;
-    z-index: 2;
-    width: 77.99%;
+  top: 46.45%;
+  left: 25.46%;
+  z-index: 2;
+  width: 77.99%;
 }
 
 .scene-decoration--right-center {
@@ -198,6 +198,7 @@ body {
   right: 0;
   z-index: 2;
   width: 32.2368%;
+  aspect-ratio: 1078 / 863;
   transform: translate3d(
       var(--scene-center-parallax-x),
       var(--scene-center-parallax-y),
@@ -205,6 +206,30 @@ body {
     )
     translateY(-50%);
   will-change: transform;
+}
+
+.scene-right-center__layer {
+  position: absolute;
+  display: block;
+  height: auto;
+  user-select: none;
+  pointer-events: none;
+}
+
+.scene-right-center__main {
+  top: 0;
+  left: 0;
+  z-index: 2;
+  width: 100%;
+}
+
+.scene-right-center__mirror {
+  top: 41.71%;
+  left: 1.21%;
+  z-index: 1;
+  width: 98.7%;
+  opacity: 0.57;
+  mix-blend-mode: darken;
 }
 
 .scene-decoration--left-bottom {
@@ -452,10 +477,11 @@ body {
 
   50% {
     transform: translate3d(
-      var(--start-float-x),
-      calc(-1 * var(--start-float-y)),
-      0
-    ) rotate(var(--start-float-rotation));
+        var(--start-float-x),
+        calc(-1 * var(--start-float-y)),
+        0
+      )
+      rotate(var(--start-float-rotation));
   }
 }
 
@@ -644,6 +670,21 @@ body {
   position: absolute;
   inset: 0;
   z-index: 1;
+}
+
+.scene-decoration--ball-reflection {
+  position: absolute;
+  top: 96%;
+  left: 50%;
+  z-index: 2;
+  display: block;
+  width: min(47.66vw, 80.59dvh);
+  height: auto;
+  opacity: 0.6;
+  mix-blend-mode: screen;
+  transform: translate(-50%, -50%);
+  user-select: none;
+  pointer-events: none;
 }
 
 #scene canvas {
@@ -1216,6 +1257,11 @@ body.is-loading-preview #loading-screen {
   }
 }
 @media (min-width: 768px) and (max-width: 1023px) {
+  .scene-decoration--ball-reflection {
+    top: 100%;
+    width: 73vw;
+  }
+
   #scene-environment {
     inset: 0;
   }
@@ -1291,6 +1337,11 @@ body.is-loading-preview #loading-screen {
 }
 
 @media (max-width: 767px) {
+  .scene-decoration--ball-reflection {
+    top: 82%;
+    width: 123vw;
+  }
+
   .prediction-modal {
     place-items: end center;
     padding: 0 16px 78.41px;
