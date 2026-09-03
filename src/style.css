@@ -167,15 +167,30 @@ body {
 .scene-left-center__main {
   top: 0;
   left: 0.84%;
-  z-index: 2;
+  z-index: 3;
   width: 98.32%;
 }
 
 .scene-left-center__mirror {
-  top: 47.45%;
+  top: 54.04%;
   left: 20%;
   z-index: 1;
-  width: 78.45%;
+  width: 66.71%;
+  opacity: 0.67;
+  mix-blend-mode: darken;
+}
+
+/* .scene-left-center__light {
+  top: 47.45%;
+  left: 33.46%;
+  z-index: 2;
+  width: 64.99%;
+} */
+.scene-left-center__light {
+    top: 46.45%;
+    left: 25.46%;
+    z-index: 2;
+    width: 77.99%;
 }
 
 .scene-decoration--right-center {
@@ -194,9 +209,9 @@ body {
 
 .scene-decoration--left-bottom {
   bottom: -22%;
-  left: -10%;
+  left: -12%;
   z-index: 3;
-  width: 40.7715%;
+  width: 42.7715%;
   transform: translate3d(
     var(--scene-bottom-parallax-x),
     var(--scene-bottom-parallax-y),
@@ -206,10 +221,10 @@ body {
 }
 
 .scene-decoration--right-bottom {
-  right: -12%;
+  right: -14%;
   bottom: -13%;
   z-index: 3;
-  width: 40.6483%;
+  width: 42.6483%;
   transform: translate3d(
     var(--scene-bottom-parallax-x),
     var(--scene-bottom-parallax-y),
@@ -1393,7 +1408,8 @@ body.is-loading-preview #loading-screen {
     width: 360px;
   }
 
-  .scene-left-center__mirror {
+  .scene-left-center__mirror,
+  .scene-left-center__light {
     display: none;
   }
 
