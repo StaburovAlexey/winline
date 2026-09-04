@@ -528,13 +528,17 @@ function createBasicMaterial(source, keepTransparent) {
   const bakedMap = keepTransparent
     ? source.emissiveMap ?? source.map
     : source.map ?? source.emissiveMap;
+  const alphaMap = keepTransparent ? source.map : source.alphaMap;
 
   if (bakedMap) {
     configureTexture(bakedMap);
   }
+  if (alphaMap && alphaMap !== bakedMap) {
+    configureTexture(alphaMap);
+  }
 
   const material = new THREE.MeshBasicMaterial({
-    alphaMap: source.alphaMap,
+    alphaMap,
     alphaTest: keepTransparent ? source.alphaTest : 0,
     blending: keepTransparent ? THREE.AdditiveBlending : source.blending,
     color: bakedMap ? 0xffffff : source.color,
@@ -544,14 +548,49 @@ function createBasicMaterial(source, keepTransparent) {
     map: bakedMap,
     opacity: keepTransparent ? source.opacity : 1,
     premultipliedAlpha: source.premultipliedAlpha,
-    side: source.side,
+    side: keepTransparent ? THREE.FrontSide : source.side,
     toneMapped: source.toneMapped,
     transparent: keepTransparent,
     vertexColors: source.vertexColors,
   });
 
   if (keepTransparent) {
-    material.color.setScalar(appConfig.materials.transparentBrightness ?? 1);
+    const transparentBrightness = appConfig.materials.transparentBrightness ?? 1;
+    const transparentWhiteness = THREE.MathUtils.clamp(
+      appConfig.materials.transparentWhiteness ?? 0,
+      0,
+      1,
+    );
+    const transparentBaseOpacity = THREE.MathUtils.clamp(
+      appConfig.materials.transparentBaseOpacity ?? 0,
+      0,
+      1,
+    );
+    const transparentHighlightOpacity = THREE.MathUtils.clamp(
+      appConfig.materials.transparentHighlightOpacity ?? 1,
+      0,
+      1,
+    );
+    material.color.setScalar(transparentBrightness);
+    material.onBeforeCompile = (shader) => {
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          "#include <map_fragment>",
+          `#include <map_fragment>
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), ${transparentWhiteness});`,
+        )
+        .replace(
+          "#include <alphamap_fragment>",
+          `#ifdef USE_ALPHAMAP
+          diffuseColor.a *= max(
+            texture2D(alphaMap, vAlphaMapUv).a * ${transparentHighlightOpacity},
+            ${transparentBaseOpacity}
+          );
+          #endif`,
+        );
+    };
+    material.customProgramCacheKey = () =>
+      `transparent-alpha-channel:${transparentWhiteness}:${transparentBaseOpacity}:${transparentHighlightOpacity}`;
   }
 
   material.name = source.name;

@@ -1,6 +1,6 @@
 export const appConfig = {
   model: {
-    url: `${import.meta.env.BASE_URL}assets/winline3.glb`,
+    url: `${import.meta.env.BASE_URL}assets/winline4.glb`,
     dracoDecoderPath: `${import.meta.env.BASE_URL}draco/`,
     normalize: true,
     scale: 1,
@@ -32,7 +32,7 @@ export const appConfig = {
       mobileWidthFill: 1.2,
       desktopPadding: 0.8,
       // Смещение задаёт ракурс и масштабируется вместе с дистанцией камеры.
-      positionOffset: { x: 0, y: 0.3, z: 0 },
+      positionOffset: { x: 0, y: 0.5, z: 0 },
       targetOffset: { x: 0, y: 0, z: 0 },
       excludedMeshNames: [
         "Sphere",
@@ -114,7 +114,10 @@ export const appConfig = {
   materials: {
     transparentMeshNames: ["Sphere"],
     transparentGeometryNames: ["Sphere"],
-    transparentBrightness: 3,
+    transparentBrightness: 1,
+    transparentWhiteness: 0.28,
+    transparentBaseOpacity: 0.12,
+    transparentHighlightOpacity: 0.5,
   },
 
   physics: {
