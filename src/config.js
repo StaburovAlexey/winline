@@ -1,11 +1,15 @@
 export const appConfig = {
   model: {
     url: `${import.meta.env.BASE_URL}assets/winline4.glb`,
+    sphereOverlayUrl: `${import.meta.env.BASE_URL}assets/ballls.png`,
+    sphereOverlayVisibleWidthRatio: 0.73,
+    sphereOverlayCenterXOffsetRatio: 0.03,
+    sphereOverlayCenterYOffsetRatio: 0.02,
     dracoDecoderPath: `${import.meta.env.BASE_URL}draco/`,
     normalize: true,
     scale: 1,
     position: { x: 0, y: 0, z: 0 },
-    rotationDegrees: { x: 0, y: 42, z: 0 },
+    rotationDegrees: { x: 0, y: 45, z: 0 },
   },
 
   camera: {
@@ -14,7 +18,7 @@ export const appConfig = {
     fov: 24,
     near: 0.001,
     far: 100,
-    breakpoint: 728,
+    breakpoint: 768,
 
     manual: {
       desktop: {
@@ -29,13 +33,15 @@ export const appConfig = {
 
     fit: {
       // 1 = заполнить 100% ширины, 0.9 = оставить по 5% с каждой стороны.
-      mobileWidthFill: 1.2,
+      mobileWidthFill: 0.96,
+      mobileBottomOffsetPx: 140,
       desktopPadding: 0.8,
       // Смещение задаёт ракурс и масштабируется вместе с дистанцией камеры.
-      positionOffset: { x: 0, y: 0.5, z: 0 },
+      positionOffset: { x: 0, y: 0.2, z: 0 },
       targetOffset: { x: 0, y: 0, z: 0 },
       excludedMeshNames: [
         "Sphere",
+        "Sphere_overlay",
         "Sphere_colaider",
         "static_base_colaider",
       ],

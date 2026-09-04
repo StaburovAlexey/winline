@@ -139,6 +139,8 @@ controls.maxDistance = appConfig.controls.maxDistance;
 
 let model = null;
 let modelPhysics = null;
+let sphereOverlay = null;
+const sphereOverlayParentQuaternion = new THREE.Quaternion();
 
 const parallax = createParallaxController({
   camera,
@@ -651,6 +653,62 @@ function configureModelMaterials(root) {
   }
 }
 
+function createSphereOverlay(root, sphereCollider, texture) {
+  root.updateMatrixWorld(true);
+  if (!sphereCollider.geometry.boundingBox) {
+    sphereCollider.geometry.computeBoundingBox();
+  }
+
+  const rootInverseMatrix = root.matrixWorld.clone().invert();
+  const colliderMatrix = new THREE.Matrix4().multiplyMatrices(
+    rootInverseMatrix,
+    sphereCollider.matrixWorld,
+  );
+  const bounds = sphereCollider.geometry.boundingBox
+    .clone()
+    .applyMatrix4(colliderMatrix);
+  const size = bounds.getSize(new THREE.Vector3());
+  const center = bounds.getCenter(new THREE.Vector3());
+  center.x += Math.max(size.x, size.y) *
+    (appConfig.model.sphereOverlayCenterXOffsetRatio ?? 0);
+  center.y += Math.max(size.x, size.y) *
+    (appConfig.model.sphereOverlayCenterYOffsetRatio ?? 0);
+  const visibleWidthRatio = Math.max(
+    appConfig.model.sphereOverlayVisibleWidthRatio ?? 1,
+    0.01,
+  );
+  const imageAspect = texture.image.width / texture.image.height;
+  const planeWidth = Math.max(size.x, size.y) / visibleWidthRatio;
+  const geometry = new THREE.PlaneGeometry(planeWidth, planeWidth / imageAspect);
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+    side: THREE.FrontSide,
+    toneMapped: false,
+  });
+  const overlay = new THREE.Mesh(geometry, material);
+  overlay.name = "Sphere_overlay";
+  overlay.position.copy(center);
+  overlay.renderOrder = 100;
+  overlay.frustumCulled = false;
+  root.add(overlay);
+
+  return overlay;
+}
+
+function updateSphereOverlayFacing() {
+  if (!sphereOverlay?.parent) {
+    return;
+  }
+
+  sphereOverlay.parent.getWorldQuaternion(sphereOverlayParentQuaternion);
+  sphereOverlay.quaternion
+    .copy(sphereOverlayParentQuaternion.invert())
+    .multiply(camera.quaternion);
+}
+
 function normalizeModel(root) {
   const initialBox = new THREE.Box3().setFromObject(root);
   const size = initialBox.getSize(new THREE.Vector3());
@@ -747,7 +805,48 @@ function getHorizontalFitDistance(root, center, horizontalHalfFov) {
   return requiredDistance;
 }
 
-function applyFitCamera(viewportWidth) {
+function alignMobileModelBottom(bounds, viewportHeight) {
+  const bottomOffset = appConfig.camera.fit.mobileBottomOffsetPx;
+  if (!Number.isFinite(bottomOffset) || viewportHeight <= 0) {
+    return;
+  }
+
+  camera.updateMatrixWorld(true);
+  const corner = new THREE.Vector3();
+  let screenBottom = -Infinity;
+
+  for (const x of [bounds.min.x, bounds.max.x]) {
+    for (const y of [bounds.min.y, bounds.max.y]) {
+      for (const z of [bounds.min.z, bounds.max.z]) {
+        corner.set(x, y, z).project(camera);
+        screenBottom = Math.max(
+          screenBottom,
+          (1 - corner.y) * 0.5 * viewportHeight,
+        );
+      }
+    }
+  }
+
+  if (!Number.isFinite(screenBottom)) {
+    return;
+  }
+
+  const desiredBottom = viewportHeight - Math.max(bottomOffset, 0);
+  const pixelOffset = desiredBottom - screenBottom;
+  const boundsCenter = bounds.getCenter(new THREE.Vector3());
+  const cameraDistance = camera.position.distanceTo(boundsCenter);
+  const verticalHalfFov = THREE.MathUtils.degToRad(camera.fov * 0.5);
+  const worldUnitsPerPixel =
+    (2 * cameraDistance * Math.tan(verticalHalfFov)) / viewportHeight;
+  const cameraUp = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+  const worldOffset = pixelOffset * worldUnitsPerPixel;
+
+  camera.position.addScaledVector(cameraUp, worldOffset);
+  controls.target.addScaledVector(cameraUp, worldOffset);
+  camera.lookAt(controls.target);
+}
+
+function applyFitCamera(viewportWidth, viewportHeight) {
   const fullBox = new THREE.Box3().setFromObject(model);
   const isMobile = viewportWidth < appConfig.camera.breakpoint;
   const contentBox = getModelContentBox(model);
@@ -779,6 +878,10 @@ function applyFitCamera(viewportWidth) {
   );
   controls.target.copy(target);
   camera.lookAt(target);
+
+  if (isMobile) {
+    alignMobileModelBottom(fitBox, viewportHeight);
+  }
 }
 
 function applyManualCamera(viewportWidth) {
@@ -791,15 +894,16 @@ function applyManualCamera(viewportWidth) {
   camera.lookAt(controls.target);
 }
 
-function updateCamera(viewportWidth) {
+function updateCamera(viewportWidth, viewportHeight) {
   camera.fov = appConfig.camera.fov;
   camera.near = appConfig.camera.near;
   camera.far = appConfig.camera.far;
+  camera.updateProjectionMatrix();
 
   if (appConfig.camera.mode === "manual") {
     applyManualCamera(viewportWidth);
   } else if (model) {
-    applyFitCamera(viewportWidth);
+    applyFitCamera(viewportWidth, viewportHeight);
   }
 
   camera.updateProjectionMatrix();
@@ -813,7 +917,7 @@ function resize() {
 
   camera.aspect = width / Math.max(height, 1);
   renderer.setSize(width, height, false);
-  updateCamera(width);
+  updateCamera(width, height);
 }
 
 function animate(time) {
@@ -836,6 +940,7 @@ function animate(time) {
   );
   controls.update();
   parallax.update(deltaTime);
+  updateSphereOverlayFacing();
   const renderStartTime = performance.now();
   renderer.render(scene, camera);
   renderStatsPanel?.update(performance.now() - renderStartTime, 20);
@@ -888,7 +993,28 @@ async function loadScene() {
     staticBaseCollider.visible = false;
   }
 
+  gltf.scene.traverse((node) => {
+    if (
+      node.isMesh
+      && matchesNode(
+        node,
+        appConfig.materials.transparentMeshNames,
+        appConfig.materials.transparentGeometryNames,
+      )
+    ) {
+      node.visible = false;
+    }
+  });
+
   configureModelMaterials(gltf.scene);
+  const sphereOverlayTexture = await new THREE.TextureLoader(loadingManager)
+    .loadAsync(appConfig.model.sphereOverlayUrl);
+  configureTexture(sphereOverlayTexture);
+  sphereOverlay = createSphereOverlay(
+    gltf.scene,
+    sphereCollider,
+    sphereOverlayTexture,
+  );
   applyModelConfig(gltf.scene);
   scene.add(gltf.scene);
   model = gltf.scene;
@@ -925,6 +1051,9 @@ window.addEventListener("pagehide", () => {
   parallax.dispose();
   startScreenMotion.dispose();
   audio.dispose();
+  sphereOverlay?.geometry.dispose();
+  sphereOverlay?.material.map?.dispose();
+  sphereOverlay?.material.dispose();
 }, { once: true });
 resize();
 renderer.setAnimationLoop(animate);
