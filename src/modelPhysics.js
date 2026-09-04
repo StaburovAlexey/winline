@@ -1,8 +1,6 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 
-// GLTFLoader removes dots from node names: clip_low.001 becomes clip_low001.
-const CLIP_NAME_PATTERN = /^clip_low(?:[._]?\d+)?$/;
 // Support both the legacy ball1/ball2 names and descriptive Blender names
 // such as ball_b_1 and ball_o used by the current model.
 const BALL_NAME_PATTERN = /^ball(?:\d+|(?:[._-][a-z0-9]+)+)?$/i;
@@ -2121,7 +2119,7 @@ export async function createModelPhysics({
       return;
     }
 
-    if (CLIP_NAME_PATTERN.test(node.name) || BALL_NAME_PATTERN.test(node.name)) {
+    if (node.name.includes("clip_low") || BALL_NAME_PATTERN.test(node.name)) {
       movingNodes.push(node);
     }
   });

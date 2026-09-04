@@ -525,19 +525,23 @@ function configureTexture(texture) {
 }
 
 function createBasicMaterial(source, keepTransparent) {
-  if (source.map) {
-    configureTexture(source.map);
+  const bakedMap = keepTransparent
+    ? source.emissiveMap ?? source.map
+    : source.map ?? source.emissiveMap;
+
+  if (bakedMap) {
+    configureTexture(bakedMap);
   }
 
   const material = new THREE.MeshBasicMaterial({
     alphaMap: source.alphaMap,
     alphaTest: keepTransparent ? source.alphaTest : 0,
-    blending: source.blending,
-    color: source.map ? 0xffffff : source.color,
+    blending: keepTransparent ? THREE.AdditiveBlending : source.blending,
+    color: bakedMap ? 0xffffff : source.color,
     depthTest: true,
     depthWrite: !keepTransparent,
     fog: source.fog,
-    map: source.map,
+    map: bakedMap,
     opacity: keepTransparent ? source.opacity : 1,
     premultipliedAlpha: source.premultipliedAlpha,
     side: source.side,
@@ -545,6 +549,10 @@ function createBasicMaterial(source, keepTransparent) {
     transparent: keepTransparent,
     vertexColors: source.vertexColors,
   });
+
+  if (keepTransparent) {
+    material.color.setScalar(appConfig.materials.transparentBrightness ?? 1);
+  }
 
   material.name = source.name;
   material.visible = source.visible;
