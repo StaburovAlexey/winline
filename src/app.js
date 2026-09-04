@@ -11,7 +11,7 @@ import "./style.css";
 
 const sceneElement = document.querySelector("#scene");
 const sceneAssetImages = document.querySelectorAll(
-  "#scene-environment img[data-src], #scene-decorations img[data-src]",
+  "#scene-environment img[data-src], #scene-decorations img[data-src], #scene-foreground-decorations img[data-src]",
 );
 const startScreenElement = document.querySelector("#start-screen");
 const startButton = document.querySelector("#start-button");
@@ -339,12 +339,17 @@ function closePredictionModal() {
 
 let predictionRevealPending = false;
 
-function handleShakeEnd() {
+function handleShakeEnd({ duration = 0 } = {}) {
   const sceneIsReady =
     modelPhysics !== null
     && !sceneActionsElement.classList.contains("is-hidden");
+  const requiredDuration = Math.max(
+    appConfig.parallax.shake.predictionDurationSeconds ?? 2,
+    0,
+  );
   if (
     !sceneIsReady
+    || duration < requiredDuration
     || predictionRevealPending
     || !predictionModal.hidden
   ) {

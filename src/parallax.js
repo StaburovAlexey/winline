@@ -131,6 +131,8 @@ export function createParallaxController({
   let shakeElapsed = 0;
   let shakeStrength = 0;
   let shakeActive = false;
+  let shakeSequenceStartedAt = null;
+  let lastShakeAt = null;
   let disposed = false;
 
   function isDesktopMode() {
@@ -166,15 +168,21 @@ export function createParallaxController({
 
   function clearCameraShake(notify = false) {
     const shouldNotify = notify && shakeActive;
+    const shakeDuration =
+      shakeSequenceStartedAt !== null && lastShakeAt !== null
+        ? Math.max((lastShakeAt - shakeSequenceStartedAt) / 1000, 0)
+        : 0;
     shakeRemaining = 0;
     shakeElapsed = 0;
     shakeStrength = 0;
     shakeActive = false;
+    shakeSequenceStartedAt = null;
+    lastShakeAt = null;
     cameraShakeOffset.set(0, 0);
 
     if (shouldNotify) {
       try {
-        shakeEndCallback();
+        shakeEndCallback({ duration: shakeDuration });
       } catch (error) {
         console.error("Не удалось обработать окончание встряски", error);
       }
@@ -368,6 +376,19 @@ export function createParallaxController({
 
     const safeStrength = THREE.MathUtils.clamp(strength, 0.35, 1);
     const safeCoherence = THREE.MathUtils.clamp(coherence, 0, 1);
+    const now = performance.now();
+    const continuityTimeout = Math.max(
+      shakeConfig.continuityTimeoutSeconds ?? 0.35,
+      0,
+    ) * 1000;
+    if (
+      shakeSequenceStartedAt === null
+      || lastShakeAt === null
+      || now - lastShakeAt > continuityTimeout
+    ) {
+      shakeSequenceStartedAt = now;
+    }
+    lastShakeAt = now;
     const directionLength = Math.hypot(direction.x, direction.y);
     let physicsDirectionX = 0;
     let physicsDirectionY = 0;

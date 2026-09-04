@@ -174,20 +174,22 @@ function createStaticBaseCuboid(
   restitution,
   friction,
   thickness,
+  horizontalPadding,
   contactSkin,
 ) {
   const bounds = getRootLocalBounds(mesh, rootInverseWorldMatrix);
   const size = bounds.getSize(new THREE.Vector3());
   const halfHeight = Math.max(size.y * 0.5, thickness * 0.5);
+  const safeHorizontalPadding = Math.max(horizontalPadding ?? 0, 0);
   const center = bounds.getCenter(new THREE.Vector3());
 
   // Keep the rendered upper surface aligned while extending the collider down.
   center.y = bounds.max.y - halfHeight;
 
   const collider = RAPIER.ColliderDesc.cuboid(
-    size.x * 0.5,
+    size.x * 0.5 + safeHorizontalPadding,
     halfHeight,
-    size.z * 0.5,
+    size.z * 0.5 + safeHorizontalPadding,
   )
     .setTranslation(center.x, center.y, center.z)
     .setFriction(friction)
@@ -373,6 +375,7 @@ class ModelPhysics {
             config.staticRestitution,
             config.floorFriction,
             config.staticBaseColliderThickness,
+            config.staticBaseColliderHorizontalPadding,
             config.staticBaseColliderContactSkin,
           )
         : createStaticTrimesh(
@@ -2030,6 +2033,7 @@ class ModelPhysics {
       const substepStartTime = performance.now();
       this.elapsedTime += fixedTimeStep;
       this.applyFluidMotion(fixedTimeStep);
+      this.clampBodySpeeds();
       const worldStepStartTime = performance.now();
       this.world.step(this.eventQueue);
       this.drainCollisionEvents();
