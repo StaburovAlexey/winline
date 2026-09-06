@@ -83,11 +83,16 @@
       </div>
     </div>
     <div id="scene-decorations" aria-hidden="true">
-      <img class="scene-decoration scene-decoration--top-center" data-src="assets/main-page/top-center.png" alt="">
-      <img class="scene-decoration scene-decoration--ball-reflection" data-src="assets/main-page/ball.png" alt="">
+      <picture class="scene-decoration scene-decoration--top-center">
+        <source media="(max-width: 767px)" srcset="assets/main-page/top-center-767.png">
+        <img data-src="assets/main-page/top-center.png" alt="">
+      </picture>
       <div class="scene-decoration scene-decoration--left-center">
         <img class="scene-left-center__layer scene-left-center__mirror" data-src="assets/main-page/left-center/mirror1.png" alt="">
-        <img class="scene-left-center__layer scene-left-center__light" data-src="assets/main-page/left-center/light.png" alt="">
+        <picture class="scene-left-center__layer scene-left-center__light">
+          <source media="(max-width: 767px)" srcset="assets/main-page/left-center/light-767.png">
+          <img data-src="assets/main-page/left-center/light.png" alt="">
+        </picture>
         <img class="scene-left-center__layer scene-left-center__main" data-src="assets/main-page/left-center/main.png" alt="">
       </div>
       <div class="scene-decoration scene-decoration--right-center">

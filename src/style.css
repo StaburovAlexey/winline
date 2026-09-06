@@ -61,7 +61,7 @@ body {
 
   min-height: 100dvh;
   overflow: hidden;
-  background-color: #080b16;
+  background-color: #0b090a;
 }
 
 #scene-environment {
@@ -150,6 +150,12 @@ body {
   will-change: transform;
 }
 
+.scene-decoration--top-center img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 .scene-decoration--left-center {
   top: 8%;
   left: 0;
@@ -173,20 +179,27 @@ body {
 }
 
 .scene-left-center__main {
-  top: 0;
-  left: 0.84%;
+  top: 12px;
+  left: 1.84%;
   z-index: 3;
-  width: 98.32%;
+  width: 125.32%;
 }
-
 .scene-left-center__mirror {
+  top: 51.04%;
+  left: 22%;
+  z-index: 1;
+  width: 66.71%;
+  /* opacity: 0.67; */
+  /* mix-blend-mode: darken; */
+}
+/* .scene-left-center__mirror {
   top: 54.04%;
   left: 20%;
   z-index: 1;
   width: 66.71%;
   opacity: 0.67;
   mix-blend-mode: darken;
-}
+} */
 
 /* .scene-left-center__light {
   top: 47.45%;
@@ -195,10 +208,16 @@ body {
   width: 64.99%;
 } */
 .scene-left-center__light {
-  top: 46.45%;
-  left: 25.46%;
+  top: 45.45%;
+  left: 14.46%;
   z-index: 2;
   width: 77.99%;
+}
+
+.scene-left-center__light img {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
 .scene-decoration--right-center {
@@ -682,21 +701,6 @@ body {
 
 #scene-foreground-decorations {
   z-index: 2;
-}
-
-.scene-decoration--ball-reflection {
-  position: absolute;
-  top: 96%;
-  left: 50%;
-  z-index: 2;
-  display: block;
-  width: min(47.66vw, 80.59dvh);
-  height: auto;
-  opacity: 0.6;
-  mix-blend-mode: screen;
-  transform: translate(-50%, -50%);
-  user-select: none;
-  pointer-events: none;
 }
 
 #scene canvas {
@@ -1269,11 +1273,9 @@ body.is-loading-preview #loading-screen {
   }
 }
 @media (max-width: 767px) {
-  .scene-decoration--ball-reflection {
-    top: 82%;
-    width: 123vw;
+  .scene-right-center__mirror{
+    top: 49.71%;
   }
-
   .prediction-modal {
     place-items: end center;
     padding: 0 16px 78.41px;
@@ -1358,10 +1360,10 @@ body.is-loading-preview #loading-screen {
 
   .scene-environment__background--top {
     top: auto;
-    bottom: 445px;
+    bottom: 320px;
     left: 50%;
     z-index: 1;
-    width: 1024px;
+    width: 1524px;
 
     object-fit: cover;
     object-position: center bottom;
@@ -1375,11 +1377,11 @@ body.is-loading-preview #loading-screen {
   .scene-environment__background--bottom {
     top: auto;
     right: auto;
-    bottom: -53px;
+    bottom: 0;
     left: 50%;
-    z-index: 0;
-    width: 1500px;
-   
+    z-index: 1;
+    width: 1150px;
+
     object-fit: cover;
     object-position: center top;
     transform: translate3d(
@@ -1389,49 +1391,52 @@ body.is-loading-preview #loading-screen {
     );
   }
 
-  .scene-decoration--top-center {
-    bottom: 401px;
+ .scene-decoration--top-center {
+    bottom: 342px;
     top: auto;
-    right: 64px;
+    right: 40px;
     left: auto;
-    width: 925px;
+    width: 1053px;
+    height: 223px;
     transform: translate3d(
       var(--scene-top-parallax-x),
       var(--scene-top-parallax-y),
       0
     );
-  }
+}
 
   .scene-decoration--left-center {
     top: auto;
-    bottom: -94px;
-    left: -135px;
-    width: 471px;
-  }
+    bottom: -30px;
+    left: -105px;
+    width: 364px;
+}
 
-  .scene-left-center__mirror,
-  .scene-left-center__light {
+  .scene-left-center__mirror {
     display: none;
   }
 
   .scene-decoration--right-center {
     top: auto;
-    right: -123px;
-    bottom: 20px;
-    width: 385px;
+    right: -91px;
+    bottom: 75px;
+    width: 277px;
+    /* height: 220px; */
   }
 
   .scene-decoration--left-bottom {
-    bottom: -142px;
+    bottom: -160px;
+    /* left: clamp(-256px, calc(26.781327vw - 391.413px), -186px); */
     left: -186px;
     width: 491px;
   }
 
   .scene-decoration--right-bottom {
+    /* right: clamp(-273px, calc(9.793612vw - 312.456px), -222px); */
     right: -222px;
     bottom: -83.5px;
     width: 450px;
-  }
+}
 
   #start-snowball::before {
     width: 100%;
@@ -1562,6 +1567,103 @@ body.is-loading-preview #loading-screen {
   }
 }
 
+/* Компактная основная сцена: отдельные настройки для экранов 420px и меньше. */
+@media (max-width: 420px) {
+  .scene-environment__background--top {
+    bottom: 320px;
+    left: 50%;
+    width: 1524px;
+    transform: translate3d(
+      calc(-50% + var(--scene-background-top-parallax-x)),
+      var(--scene-background-top-parallax-y),
+      0
+    );
+  }
+
+  .scene-environment__background--bottom {
+    bottom: 0;
+    left: 50%;
+    width: 1150px;
+    height: 334px;
+    transform: translate3d(
+      calc(-50% + var(--scene-background-bottom-parallax-x)),
+      var(--scene-background-bottom-parallax-y),
+      0
+    );
+  }
+
+  .scene-decoration--top-center {
+    right: 40px;
+    bottom: 342px;
+    width: 1053px;
+    height: 223px;
+  }
+
+ .scene-decoration--left-center {
+    bottom: -24px;
+    left: clamp(
+      -160px,
+      calc(-129px - (420px - 100vw) * 0.516667),
+      -129px
+    );
+    width: 330px;
+}
+
+  .scene-decoration--right-center {
+    right: clamp(
+      -145px,
+      calc(-114px - (420px - 100vw) * 0.516667),
+      -114px
+    );
+    bottom: 93px;
+    width: 230px;
+}
+
+.scene-decoration--left-bottom {
+    bottom: -140px;
+    left: -220px;
+    width: 449px;
+}
+
+ .scene-decoration--right-bottom {
+    right: -264px;
+    bottom: -69.5px;
+    width: 407px;
+}
+.scene-left-center__light {
+    top: 41.45%;
+    left: 28.46%;
+    z-index: 2;
+    width: 77.99%;
+}
+  #scene {
+    inset: 0;
+  }
+
+  #scene canvas {
+    width: 100%;
+    height: 100%;
+  }
+
+  .scene-actions {
+    right: 0;
+    left: 0;
+    bottom: 20px;
+  
+  }
+  .scene-predixion-button {
+    width: 300px;
+  }
+}
+
+@media (max-width: 420px) {
+  .scene-decoration--top-center {
+    right: -20px;
+    width: 963px;
+    height: 209.4px;
+    bottom: 304px;
+  }
+}
 @media (max-width: 450px) {
   .container-text {
     width: 100%;

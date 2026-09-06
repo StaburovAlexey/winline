@@ -140,6 +140,7 @@ controls.maxDistance = appConfig.controls.maxDistance;
 let model = null;
 let modelPhysics = null;
 let sphereOverlay = null;
+let sphereReflection = null;
 const sphereOverlayParentQuaternion = new THREE.Quaternion();
 
 const parallax = createParallaxController({
@@ -653,7 +654,7 @@ function configureModelMaterials(root) {
   }
 }
 
-function createSphereOverlay(root, sphereCollider, texture) {
+function createSphereBillboard(root, sphereCollider, texture, options) {
   root.updateMatrixWorld(true);
   if (!sphereCollider.geometry.boundingBox) {
     sphereCollider.geometry.computeBoundingBox();
@@ -669,29 +670,33 @@ function createSphereOverlay(root, sphereCollider, texture) {
     .applyMatrix4(colliderMatrix);
   const size = bounds.getSize(new THREE.Vector3());
   const center = bounds.getCenter(new THREE.Vector3());
-  center.x += Math.max(size.x, size.y) *
-    (appConfig.model.sphereOverlayCenterXOffsetRatio ?? 0);
-  center.y += Math.max(size.x, size.y) *
-    (appConfig.model.sphereOverlayCenterYOffsetRatio ?? 0);
-  const visibleWidthRatio = Math.max(
-    appConfig.model.sphereOverlayVisibleWidthRatio ?? 1,
-    0.01,
-  );
+  const referenceSize = Math.max(size.x, size.y);
+  center.x += referenceSize * (options.centerXOffsetRatio ?? 0);
+  center.y += referenceSize * (options.centerYOffsetRatio ?? 0);
+  center.z += referenceSize * (options.depthOffsetRatio ?? 0);
+  const visibleWidthRatio = Math.max(options.visibleWidthRatio ?? 1, 0.01);
   const imageAspect = texture.image.width / texture.image.height;
   const planeWidth = Math.max(size.x, size.y) / visibleWidthRatio;
   const geometry = new THREE.PlaneGeometry(planeWidth, planeWidth / imageAspect);
   const material = new THREE.MeshBasicMaterial({
     map: texture,
-    transparent: true,
-    depthTest: false,
+    transparent: options.transparent ?? true,
+    depthTest: options.depthTest ?? false,
     depthWrite: false,
     side: THREE.FrontSide,
-    toneMapped: false,
+    toneMapped: options.toneMapped ?? false,
+    opacity: options.opacity ?? 1,
   });
+  if (options.screenBlend) {
+    material.blending = THREE.CustomBlending;
+    material.blendEquation = THREE.AddEquation;
+    material.blendSrc = THREE.OneMinusDstColorFactor;
+    material.blendDst = THREE.OneFactor;
+  }
   const overlay = new THREE.Mesh(geometry, material);
-  overlay.name = "Sphere_overlay";
+  overlay.name = options.name;
   overlay.position.copy(center);
-  overlay.renderOrder = 100;
+  overlay.renderOrder = options.renderOrder ?? 0;
   overlay.frustumCulled = false;
   root.add(overlay);
 
@@ -699,14 +704,18 @@ function createSphereOverlay(root, sphereCollider, texture) {
 }
 
 function updateSphereOverlayFacing() {
-  if (!sphereOverlay?.parent) {
+  const parent = sphereOverlay?.parent ?? sphereReflection?.parent;
+  if (!parent) {
     return;
   }
 
-  sphereOverlay.parent.getWorldQuaternion(sphereOverlayParentQuaternion);
-  sphereOverlay.quaternion
-    .copy(sphereOverlayParentQuaternion.invert())
-    .multiply(camera.quaternion);
+  parent.getWorldQuaternion(sphereOverlayParentQuaternion);
+  sphereOverlayParentQuaternion.invert();
+  for (const billboard of [sphereOverlay, sphereReflection]) {
+    billboard?.quaternion
+      .copy(sphereOverlayParentQuaternion)
+      .multiply(camera.quaternion);
+  }
 }
 
 function normalizeModel(root) {
@@ -805,6 +814,27 @@ function getHorizontalFitDistance(root, center, horizontalHalfFov) {
   return requiredDistance;
 }
 
+function getMobileFixedSizeDistance(
+  sphere,
+  viewportWidth,
+  viewportHeight,
+  verticalHalfFov,
+) {
+  const isCompactMobile =
+    viewportWidth <= appConfig.camera.fit.mobileCompactBreakpoint;
+  const desiredSizePx = isCompactMobile
+    ? appConfig.camera.fit.mobileCompactSizePx
+    : appConfig.camera.fit.mobileSizePx;
+  if (!Number.isFinite(desiredSizePx) || desiredSizePx <= 0 || viewportHeight <= 0) {
+    return null;
+  }
+
+  return (
+    (sphere.radius * viewportHeight) /
+    (desiredSizePx * Math.tan(verticalHalfFov))
+  );
+}
+
 function alignMobileModelBottom(bounds, viewportHeight) {
   const bottomOffset = appConfig.camera.fit.mobileBottomOffsetPx;
   if (!Number.isFinite(bottomOffset) || viewportHeight <= 0) {
@@ -858,8 +888,14 @@ function applyFitCamera(viewportWidth, viewportHeight) {
   const halfFov = Math.min(verticalHalfFov, horizontalHalfFov);
   const referenceDistance =
     (sphere.radius / Math.sin(verticalHalfFov)) * appConfig.camera.fit.desktopPadding;
+  const mobileDistance = getMobileFixedSizeDistance(
+    sphere,
+    viewportWidth,
+    viewportHeight,
+    verticalHalfFov,
+  );
   const distance = isMobile
-    ? getHorizontalFitDistance(model, center, horizontalHalfFov)
+    ? (mobileDistance ?? getHorizontalFitDistance(model, center, horizontalHalfFov))
     : (sphere.radius / Math.sin(halfFov)) * appConfig.camera.fit.desktopPadding;
 
   const positionOffset = appConfig.camera.fit.positionOffset;
@@ -1007,13 +1043,41 @@ async function loadScene() {
   });
 
   configureModelMaterials(gltf.scene);
-  const sphereOverlayTexture = await new THREE.TextureLoader(loadingManager)
-    .loadAsync(appConfig.model.sphereOverlayUrl);
+  const textureLoader = new THREE.TextureLoader(loadingManager);
+  const [sphereOverlayTexture, sphereReflectionTexture] = await Promise.all([
+    textureLoader.loadAsync(appConfig.model.sphereOverlayUrl),
+    textureLoader.loadAsync(appConfig.model.sphereReflectionUrl),
+  ]);
   configureTexture(sphereOverlayTexture);
-  sphereOverlay = createSphereOverlay(
+  configureTexture(sphereReflectionTexture);
+  sphereOverlay = createSphereBillboard(
     gltf.scene,
     sphereCollider,
     sphereOverlayTexture,
+    {
+      name: "Sphere_overlay",
+      visibleWidthRatio: appConfig.model.sphereOverlayVisibleWidthRatio,
+      centerXOffsetRatio: appConfig.model.sphereOverlayCenterXOffsetRatio,
+      centerYOffsetRatio: appConfig.model.sphereOverlayCenterYOffsetRatio,
+      renderOrder: 100,
+    },
+  );
+  sphereReflection = createSphereBillboard(
+    gltf.scene,
+    sphereCollider,
+    sphereReflectionTexture,
+    {
+      name: "Sphere_reflection",
+      visibleWidthRatio: appConfig.model.sphereReflectionVisibleWidthRatio,
+      centerXOffsetRatio: appConfig.model.sphereReflectionCenterXOffsetRatio,
+      centerYOffsetRatio: appConfig.model.sphereReflectionCenterYOffsetRatio,
+      depthOffsetRatio: appConfig.model.sphereReflectionDepthOffsetRatio,
+      depthTest: true,
+      opacity: appConfig.model.sphereReflectionOpacity,
+      transparent: true,
+      toneMapped: true,
+      renderOrder: -100,
+    },
   );
   applyModelConfig(gltf.scene);
   scene.add(gltf.scene);
@@ -1054,6 +1118,9 @@ window.addEventListener("pagehide", () => {
   sphereOverlay?.geometry.dispose();
   sphereOverlay?.material.map?.dispose();
   sphereOverlay?.material.dispose();
+  sphereReflection?.geometry.dispose();
+  sphereReflection?.material.map?.dispose();
+  sphereReflection?.material.dispose();
 }, { once: true });
 resize();
 renderer.setAnimationLoop(animate);
