@@ -64,6 +64,7 @@ const startScreenMotion = createStartScreenMotion({
 
 const audio = createAudioController({
   collisionSound: appConfig.physics.collisionSound,
+  onProgress: reportAudioLoadingProgress,
 });
 
 for (const button of document.querySelectorAll("button")) {
@@ -281,6 +282,7 @@ function preloadPredictionCardImages() {
     return predictionCardsPreloadPromise;
   }
 
+  let completedCards = 0;
   predictionCardsPreloadPromise = Promise.all(
     predictionCardIds.map((cardId) => {
       const url = `${import.meta.env.BASE_URL}assets/card/${cardId}.webp`;
@@ -289,11 +291,21 @@ function preloadPredictionCardImages() {
         loadingManager.itemStart(url);
         image.onload = () => {
           loadingManager.itemEnd(url);
+          completedCards += 1;
+          setLoadingTaskProgress(
+            "predictionAssets",
+            completedCards / predictionCardIds.length,
+          );
           resolve();
         };
         image.onerror = () => {
           loadingManager.itemError(url);
           loadingManager.itemEnd(url);
+          completedCards += 1;
+          setLoadingTaskProgress(
+            "predictionAssets",
+            completedCards / predictionCardIds.length,
+          );
           resolve();
         };
         image.src = url;
@@ -311,21 +323,31 @@ function preloadSceneAssets() {
     return sceneAssetsPreloadPromise;
   }
 
+  let completedAssets = 0;
   sceneAssetsPreloadPromise = Promise.all(
     [...sceneAssetImages].map((image) => {
       const url = `${import.meta.env.BASE_URL}${image.dataset.src}`;
       return new Promise((resolve) => {
         loadingManager.itemStart(url);
+        const markComplete = () => {
+          completedAssets += 1;
+          setLoadingTaskProgress(
+            "sceneAssets",
+            completedAssets / sceneAssetImages.length,
+          );
+        };
         image.addEventListener("load", async () => {
           if (typeof image.decode === "function") {
             await image.decode().catch(() => {});
           }
           loadingManager.itemEnd(url);
+          markComplete();
           resolve();
         }, { once: true });
         image.addEventListener("error", () => {
           loadingManager.itemError(url);
           loadingManager.itemEnd(url);
+          markComplete();
           resolve();
         }, { once: true });
         image.src = url;
@@ -442,26 +464,72 @@ if (import.meta.env.DEV && !loadingScreenPreviewMode) {
 let failedAssetUrl = null;
 let renderInfoLogged = false;
 let loadingProgress = 0;
+let loadingVisualProgress = 0;
 let modelLoadPromise = null;
+const loadingProgressTasks = new Map([
+  ["modelDownload", { weight: 0.85, value: 0 }],
+  ["modelPreparation", { weight: 0.08, value: 0 }],
+  ["sceneAssets", { weight: 0.04, value: 0 }],
+  ["predictionAssets", { weight: 0.01, value: 0 }],
+  ["audio", { weight: 0.02, value: 0 }],
+]);
+const audioLoadingProgress = new Map();
 const minimumLoadingScreenDuration = 500;
 const clock = new THREE.Clock();
 const frameInterval = 1000 / Math.max(appConfig.renderer.maxFps, 1);
 let lastFrameTime = 0;
 
 function setLoadingProgress(value, { allowDecrease = false } = {}) {
+  const visualProgress = Math.min(
+    100,
+    Math.max(allowDecrease ? 0 : loadingVisualProgress, value),
+  );
   const roundedValue = Math.round(value);
   const nextValue = Math.min(
     100,
     Math.max(allowDecrease ? 0 : loadingProgress, roundedValue),
   );
-  const loadedSegments = Math.floor(nextValue / 10);
   loadingProgress = nextValue;
+  loadingVisualProgress = visualProgress;
   loadingBarElement.style.setProperty(
     "--loading-fill",
-    `${loadedSegments * 9.5}%`,
+    `${visualProgress * 0.95}%`,
   );
   loadingBarElement.setAttribute("aria-valuenow", String(nextValue));
   loadingProgressElement.textContent = `${nextValue}%`;
+}
+
+function setLoadingTaskProgress(taskName, value) {
+  const task = loadingProgressTasks.get(taskName);
+  if (!task) {
+    return;
+  }
+
+  task.value = Math.min(Math.max(value, 0), 1);
+  let aggregateProgress = 0;
+  for (const { weight, value: taskValue } of loadingProgressTasks.values()) {
+    aggregateProgress += weight * taskValue;
+  }
+  setLoadingProgress(aggregateProgress * 100);
+}
+
+function reportAudioLoadingProgress(
+  effectName,
+  loaded,
+  total,
+  resourceCount = 1,
+) {
+  const resourceProgress = total > 0
+    ? loaded / total
+    : (loaded > 0 ? 1 : 0);
+  audioLoadingProgress.set(effectName, Math.min(Math.max(resourceProgress, 0), 1));
+
+  const expectedResources = Math.max(resourceCount, audioLoadingProgress.size, 1);
+  const loadedResources = [...audioLoadingProgress.values()].reduce(
+    (sum, progress) => sum + progress,
+    0,
+  );
+  setLoadingTaskProgress("audio", loadedResources / expectedResources);
 }
 
 function setLoadingError() {
@@ -506,13 +574,6 @@ function hideLoadingScreen() {
 }
 
 const loadingManager = new THREE.LoadingManager();
-loadingManager.onStart = () => setLoadingProgress(1);
-loadingManager.onProgress = (_url, loaded, total) => {
-  if (total > 0) {
-    setLoadingProgress((loaded / total) * 90);
-  }
-};
-loadingManager.onLoad = () => setLoadingProgress(90);
 loadingManager.onError = (url) => {
   failedAssetUrl = url;
   console.error(`Не удалось загрузить ассет: ${url}`);
@@ -1010,10 +1071,22 @@ async function loadScene() {
 
   let gltf;
   try {
-    gltf = await loader.loadAsync(appConfig.model.url);
+    gltf = await loader.loadAsync(
+      appConfig.model.url,
+      (event) => {
+        if (event.lengthComputable && event.total > 0) {
+          setLoadingTaskProgress(
+            "modelDownload",
+            event.loaded / event.total,
+          );
+        }
+      },
+    );
   } finally {
     dracoLoader.dispose();
   }
+  setLoadingTaskProgress("modelDownload", 1);
+  setLoadingTaskProgress("modelPreparation", 0.2);
 
   const sphereCollider = gltf.scene.getObjectByName(
     appConfig.physics.sphereColliderName,
@@ -1048,6 +1121,7 @@ async function loadScene() {
     textureLoader.loadAsync(appConfig.model.sphereOverlayUrl),
     textureLoader.loadAsync(appConfig.model.sphereReflectionUrl),
   ]);
+  setLoadingTaskProgress("modelPreparation", 0.55);
   configureTexture(sphereOverlayTexture);
   configureTexture(sphereReflectionTexture);
   sphereOverlay = createSphereBillboard(
@@ -1083,7 +1157,7 @@ async function loadScene() {
   scene.add(gltf.scene);
   model = gltf.scene;
   resize();
-  setLoadingProgress(95);
+  setLoadingTaskProgress("modelPreparation", 0.7);
 
   if (appConfig.physics.enabled) {
     try {
@@ -1105,7 +1179,7 @@ async function loadScene() {
     console.warn("Модель загружена, но часть ресурсов недоступна", failedAssetUrl);
   }
 
-  setLoadingProgress(100);
+  setLoadingTaskProgress("modelPreparation", 1);
 }
 
 window.addEventListener("resize", resize, { passive: true });
@@ -1149,7 +1223,9 @@ startButton.addEventListener("click", async () => {
 
   loadingTransitionStarted = true;
   startButton.disabled = true;
-  const audioReadyPromise = audio.enable();
+  const audioReadyPromise = audio.enable().then(() => {
+    setLoadingTaskProgress("audio", 1);
+  });
   audio.playButton();
   void parallax.activateSensors().catch((error) => {
     console.error("Не удалось включить датчики движения", error);

@@ -11,6 +11,37 @@ const collisionEffects = {
   sphere: "chip3",
 };
 
+async function readResponseWithProgress(response, onProgress) {
+  const total = Number(response.headers.get("content-length")) || 0;
+  if (!response.body || typeof response.body.getReader !== "function") {
+    const data = await response.arrayBuffer();
+    onProgress?.(data.byteLength, total || data.byteLength);
+    return data;
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let loaded = 0;
+  let result;
+
+  while (!(result = await reader.read()).done) {
+    chunks.push(result.value);
+    loaded += result.value.byteLength;
+    if (total > 0) {
+      onProgress?.(loaded, total);
+    }
+  }
+
+  const data = new Uint8Array(loaded);
+  let offset = 0;
+  for (const chunk of chunks) {
+    data.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  onProgress?.(loaded, total || loaded);
+  return data.buffer;
+}
+
 function getAudioContextConstructor() {
   return window.AudioContext ?? window.webkitAudioContext ?? null;
 }
@@ -19,7 +50,7 @@ function clamp(value, minimum, maximum) {
   return Math.min(Math.max(value, minimum), maximum);
 }
 
-export function createAudioController({ collisionSound = {} } = {}) {
+export function createAudioController({ collisionSound = {}, onProgress } = {}) {
   const AudioContextConstructor = getAudioContextConstructor();
   const context = AudioContextConstructor
     ? new AudioContextConstructor()
@@ -121,12 +152,26 @@ export function createAudioController({ collisionSound = {} } = {}) {
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
           }
-          const data = await response.arrayBuffer();
+          const data = await readResponseWithProgress(
+            response,
+            (loaded, total) => onProgress?.(
+              effectName,
+              loaded,
+              total,
+              Object.keys(audioUrls).length,
+            ),
+          );
           const buffer = await context.decodeAudioData(data);
           buffers.set(effectName, buffer);
         } catch (error) {
           console.warn(`Не удалось загрузить звук ${effectName}`, error);
         } finally {
+          onProgress?.(
+            effectName,
+            1,
+            1,
+            Object.keys(audioUrls).length,
+          );
           loadingEffects.delete(effectName);
           flushPendingEffects();
         }

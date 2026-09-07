@@ -184,6 +184,12 @@ body {
   z-index: 3;
   width: 125.32%;
 }
+
+.scene-left-center__main img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
 .scene-left-center__mirror {
   top: 51.04%;
   left: 22%;
@@ -1042,7 +1048,7 @@ body.is-loading-preview #loading-screen {
   );
   opacity: 0.78;
   mix-blend-mode: screen;
-  transition: clip-path 180ms ease;
+  transition: clip-path 500ms ease-out;
   pointer-events: none;
 }
 
@@ -1273,7 +1279,12 @@ body.is-loading-preview #loading-screen {
   }
 }
 @media (max-width: 767px) {
-  .scene-right-center__mirror{
+  .scene-left-center__main,
+  .scene-right-center__mirror {
+    display: block;
+  }
+
+  .scene-right-center__mirror {
     top: 49.71%;
   }
   .prediction-modal {
@@ -1391,7 +1402,7 @@ body.is-loading-preview #loading-screen {
     );
   }
 
- .scene-decoration--top-center {
+  .scene-decoration--top-center {
     bottom: 342px;
     top: auto;
     right: 40px;
@@ -1403,14 +1414,14 @@ body.is-loading-preview #loading-screen {
       var(--scene-top-parallax-y),
       0
     );
-}
+  }
 
   .scene-decoration--left-center {
     top: auto;
     bottom: -30px;
     left: -105px;
     width: 364px;
-}
+  }
 
   .scene-left-center__mirror {
     display: none;
@@ -1436,7 +1447,7 @@ body.is-loading-preview #loading-screen {
     right: -222px;
     bottom: -83.5px;
     width: 450px;
-}
+  }
 
   #start-snowball::before {
     width: 100%;
@@ -1599,43 +1610,35 @@ body.is-loading-preview #loading-screen {
     height: 223px;
   }
 
- .scene-decoration--left-center {
+  .scene-decoration--left-center {
     bottom: -24px;
-    left: clamp(
-      -160px,
-      calc(-129px - (420px - 100vw) * 0.516667),
-      -129px
-    );
+    left: clamp(-160px, calc(-129px - (420px - 100vw) * 2.516667), -129px);
     width: 330px;
-}
+  }
 
   .scene-decoration--right-center {
-    right: clamp(
-      -145px,
-      calc(-114px - (420px - 100vw) * 0.516667),
-      -114px
-    );
+    right: clamp(-145px, calc(-114px - (420px - 100vw) * 0.516667), -114px);
     bottom: 93px;
     width: 230px;
-}
+  }
 
-.scene-decoration--left-bottom {
+  .scene-decoration--left-bottom {
     bottom: -140px;
     left: -220px;
     width: 449px;
-}
+  }
 
- .scene-decoration--right-bottom {
-    right: -264px;
+  .scene-decoration--right-bottom {
+    right: -256px;
     bottom: -69.5px;
-    width: 407px;
-}
-.scene-left-center__light {
-    top: 41.45%;
-    left: 28.46%;
+    width: 413px;
+  }
+  .scene-left-center__light {
+    top: 45.45%;
+    left: 12.46%;
     z-index: 2;
     width: 77.99%;
-}
+  }
   #scene {
     inset: 0;
   }
@@ -1649,7 +1652,6 @@ body.is-loading-preview #loading-screen {
     right: 0;
     left: 0;
     bottom: 20px;
-  
   }
   .scene-predixion-button {
     width: 300px;
