@@ -1,17 +1,19 @@
+import { publicAsset } from "./publicAsset.js";
+
 export const appConfig = {
   model: {
-    url: `${import.meta.env.BASE_URL}assets/winline5.glb`,
-    sphereOverlayUrl: `${import.meta.env.BASE_URL}assets/ballls.png`,
+    url: publicAsset("assets/winline5.glb"),
+    sphereOverlayUrl: publicAsset("assets/ballls.png"),
     sphereOverlayVisibleWidthRatio: 0.73,
     sphereOverlayCenterXOffsetRatio: 0.03,
     sphereOverlayCenterYOffsetRatio: 0.04,
-    sphereReflectionUrl: `${import.meta.env.BASE_URL}assets/main-page/ball.png`,
+    sphereReflectionUrl: publicAsset("assets/main-page/ball.png"),
     sphereReflectionVisibleWidthRatio: 0.72,
     sphereReflectionCenterXOffsetRatio: 0.005,
     sphereReflectionCenterYOffsetRatio: -0.93,
     sphereReflectionDepthOffsetRatio: 0,
     sphereReflectionOpacity: 1,
-    dracoDecoderPath: `${import.meta.env.BASE_URL}draco/`,
+    dracoDecoderPath: publicAsset("draco/"),
     normalize: true,
     scale: 1,
     position: { x: 0, y: 0, z: 0 },
@@ -112,6 +114,8 @@ export const appConfig = {
       continuityTimeoutSeconds: 0.35,
       platformProfiles: {
         android: {
+          visualEnabled: false,
+          physicsEnabled: false,
           cardinalDirections: false,
           invertPlanarDirection: true,
           minimumDirectionSampleSeconds: 0.02,
@@ -119,6 +123,8 @@ export const appConfig = {
           directionLockSeconds: 0.14,
         },
         ios: {
+          visualEnabled: false,
+          physicsEnabled: false,
           cardinalDirections: true,
           invertPlanarDirection: false,
           minimumDirectionSampleSeconds: 0,

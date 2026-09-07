@@ -5,42 +5,67 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#080b16" />
-  <link rel="preload" href="font/WINLINE-SANS_REGULAR.TTF" as="font" type="font/ttf" crossorigin />
-  <link rel="preload" href="font/WINLINE-SANS_BOLD.TTF" as="font" type="font/ttf" crossorigin />
-  <link rel="preload" href="font/WINLINE-SANS_BOLD-ITALIC.TTF" as="font" type="font/ttf" crossorigin />
-  <link rel="preload" href="assets/details/winline-seeklogo%203.svg" as="image" type="image/svg+xml" />
-  <link rel="preload" href="assets/details/png/image1282.png" as="image" type="image/png" />
-  <link rel="preload" href="assets/details/png/Maskgroup.png" as="image" type="image/png" />
-  <link rel="preload" href="assets/details/png/cup.png" as="image" type="image/png" />
-  <link rel="preload" href="assets/details/webp/smoke-transparent.webp" as="image" type="image/webp" />
-  <link rel="preload" href="assets/details/png/trophy.png" as="image" type="image/png" />
-  <link rel="preload" href="assets/details/png/camera.png" as="image" type="image/png" />
-  <link rel="preload" href="assets/details/png/ball.png" as="image" type="image/png" />
-  <link rel="preload" href="assets/details/snowball3.png" as="image" type="image/png" />
-  <link rel="preload" href="assets/loading-backhround.png" as="image" type="image/png" />
-  <link rel="preload" href="assets/load-bar.png" as="image" type="image/png" />
+  <link rel="preload" href="%VITE_PUBLIC_CDN%/font/WINLINE-SANS_REGULAR.TTF" as="font" type="font/ttf" crossorigin />
+  <link rel="preload" href="%VITE_PUBLIC_CDN%/font/WINLINE-SANS_BOLD.TTF" as="font" type="font/ttf" crossorigin />
+  <link rel="preload" href="%VITE_PUBLIC_CDN%/font/WINLINE-SANS_BOLD-ITALIC.TTF" as="font" type="font/ttf" crossorigin />
+  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/winline-seeklogo%203.svg" as="image" type="image/svg+xml" />
+  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/png/image1282.png" as="image" type="image/png" />
+  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/png/Maskgroup.png" as="image" type="image/png" />
+  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/png/cup.png" as="image" type="image/png" />
+  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/webp/smoke-transparent.webp" as="image" type="image/webp" />
+  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/png/trophy.png" as="image" type="image/png" />
+  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/png/camera.png" as="image" type="image/png" />
+  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/png/ball.png" as="image" type="image/png" />
+  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/snowball3.png" as="image" type="image/png" />
+  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/loading-backhround.png" as="image" type="image/png" />
+  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/load-bar.png" as="image" type="image/png" />
+  <style>
+    @font-face {
+      font-family: "WINLINE Sans";
+      src: url("%VITE_PUBLIC_CDN%/font/WINLINE-SANS_REGULAR.TTF") format("truetype");
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    @font-face {
+      font-family: "WINLINE Sans";
+      src: url("%VITE_PUBLIC_CDN%/font/WINLINE-SANS_BOLD.TTF") format("truetype");
+      font-weight: 700;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    @font-face {
+      font-family: "WINLINE Sans";
+      src: url("%VITE_PUBLIC_CDN%/font/WINLINE-SANS_BOLD-ITALIC.TTF") format("truetype");
+      font-weight: 700;
+      font-style: italic;
+      font-display: swap;
+    }
+  </style>
   <title>Winline 3D Showcase</title>
 </head>
 
 <body>
   <main id="app" aria-label="Winline 3D showcase">
     <section id="start-screen" aria-label="Начальный экран">
-      <img id="start-logo" src="assets/details/winline-seeklogo%203.svg" alt="Winline" />
-      <img id="start-headphone" class="start-img" src="assets/details/png/image1282.png" alt="">
-      <img id="start-keyboard" class="start-img" src="assets/details/png/Maskgroup.png" alt="">
+      <img id="start-logo" src="%VITE_PUBLIC_CDN%/assets/details/winline-seeklogo%203.svg" alt="Winline" />
+      <img id="start-headphone" class="start-img" src="%VITE_PUBLIC_CDN%/assets/details/png/image1282.png" alt="">
+      <img id="start-keyboard" class="start-img" src="%VITE_PUBLIC_CDN%/assets/details/png/Maskgroup.png" alt="">
 
       <div id="start-cup-group" class="start-img" aria-hidden="true">
-        <img id="start-cup" src="assets/details/png/cup.png" alt="">
-        <img id="start-smoke" src="assets/details/webp/smoke-transparent.webp" alt="">
+        <img id="start-cup" src="%VITE_PUBLIC_CDN%/assets/details/png/cup.png" alt="">
+        <img id="start-smoke" src="%VITE_PUBLIC_CDN%/assets/details/webp/smoke-transparent.webp" alt="">
       </div>
 
 
-      <img id="start-trophy" class="start-img" src="assets/details/png/trophy.png" alt="">
-      <img id="start-camera" class="start-img" src="assets/details/png/camera.png" alt="">
-      <img id="start-ball" class="start-img" src="assets/details/png/ball.png" alt="">
+      <img id="start-trophy" class="start-img" src="%VITE_PUBLIC_CDN%/assets/details/png/trophy.png" alt="">
+      <img id="start-camera" class="start-img" src="%VITE_PUBLIC_CDN%/assets/details/png/camera.png" alt="">
+      <img id="start-ball" class="start-img" src="%VITE_PUBLIC_CDN%/assets/details/png/ball.png" alt="">
       <div class="start-content">
         <div id="start-snowball" aria-hidden="true">
-          <img id="start-snowball-image" src="assets/details/snowball3.png" alt="">
+          <img id="start-snowball-image" src="%VITE_PUBLIC_CDN%/assets/details/snowball3.png" alt="">
         </div>
         <div class="container-text">
           <h2 class="container-text__header">
@@ -84,17 +109,17 @@
     </div>
     <div id="scene-decorations" aria-hidden="true">
       <picture class="scene-decoration scene-decoration--top-center">
-        <source media="(max-width: 767px)" srcset="assets/main-page/top-center-767.png">
+        <source media="(max-width: 767px)" srcset="%VITE_PUBLIC_CDN%/assets/main-page/top-center-767.png">
         <img data-src="assets/main-page/top-center.png" alt="">
       </picture>
       <div class="scene-decoration scene-decoration--left-center">
         <img class="scene-left-center__layer scene-left-center__mirror" data-src="assets/main-page/left-center/mirror1.png" alt="">
         <picture class="scene-left-center__layer scene-left-center__light">
-          <source media="(max-width: 767px)" srcset="assets/main-page/left-center/light-767.png">
+          <source media="(max-width: 767px)" srcset="%VITE_PUBLIC_CDN%/assets/main-page/left-center/light-767.png">
           <img data-src="assets/main-page/left-center/light.png" alt="">
         </picture>
         <picture class="scene-left-center__layer scene-left-center__main">
-          <source media="(max-width: 767px)" srcset="assets/main-page/left-center/main-767.png">
+          <source media="(max-width: 767px)" srcset="%VITE_PUBLIC_CDN%/assets/main-page/left-center/main-767.png">
           <img data-src="assets/main-page/left-center/main.png" alt="">
         </picture>
       </div>

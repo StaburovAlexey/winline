@@ -19,6 +19,8 @@ const DEFAULT_SHAKE_CONFIG = {
   zVerticalGain: 1,
   lateralLiftRatio: 0,
   gravityTimeConstantSeconds: 0.22,
+  visualEnabled: true,
+  physicsEnabled: true,
   visualDuration: 0.28,
   visualAmplitude: 0.018,
   visualFrequency: 42,
@@ -80,9 +82,12 @@ export function createParallaxController({
   const bottomLayerDepth = configuredLayers.bottom ?? 1.2;
   const configuredShake = config?.shake ?? {};
   const platformProfiles = configuredShake.platformProfiles ?? {};
-  const platformShakeConfig = isAppleMobileDevice()
-    ? platformProfiles.ios
-    : platformProfiles.android;
+  const coarsePointer = window.matchMedia("(pointer: coarse)");
+  const platformShakeConfig = coarsePointer.matches
+    ? isAppleMobileDevice()
+      ? platformProfiles.ios
+      : platformProfiles.android
+    : null;
   const shakeConfig = {
     ...DEFAULT_SHAKE_CONFIG,
     ...configuredShake,
@@ -301,6 +306,11 @@ export function createParallaxController({
     const secondaryWave = Math.sin(phase * 1.67 + 0.8) * 0.42;
     const amplitude = shakeConfig.visualAmplitude * shakeStrength;
 
+    if (shakeConfig.visualEnabled === false) {
+      cameraShakeOffset.set(0, 0);
+      return;
+    }
+
     cameraShakeOffset.set(
       (shakeDirection.x * primaryWave - shakeDirection.y * secondaryWave) *
         amplitude *
@@ -406,17 +416,19 @@ export function createParallaxController({
     shakeElapsed = 0;
     shakeActive = true;
 
-    try {
-      shakeCallback({
-        strength: safeStrength,
-        direction: {
-          x: physicsDirectionX,
-          y: physicsDirectionY,
-        },
-        coherence: safeCoherence,
-      });
-    } catch (error) {
-      console.error("Не удалось применить встряску физики", error);
+    if (shakeConfig.physicsEnabled !== false) {
+      try {
+        shakeCallback({
+          strength: safeStrength,
+          direction: {
+            x: physicsDirectionX,
+            y: physicsDirectionY,
+          },
+          coherence: safeCoherence,
+        });
+      } catch (error) {
+        console.error("Не удалось применить встряску физики", error);
+      }
     }
   }
 

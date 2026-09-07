@@ -1,9 +1,11 @@
+import { publicAsset } from "./publicAsset.js";
+
 const audioUrls = {
-  button: `${import.meta.env.BASE_URL}music/button.wav`,
-  prediction: `${import.meta.env.BASE_URL}music/prediction.wav`,
-  chip1: `${import.meta.env.BASE_URL}music/chip1.mp3`,
-  chip2: `${import.meta.env.BASE_URL}music/chip2.mp3`,
-  chip3: `${import.meta.env.BASE_URL}music/chip3.mp3`,
+  button: publicAsset("music/button.wav"),
+  prediction: publicAsset("music/prediction.wav"),
+  chip1: publicAsset("music/chip1.mp3"),
+  chip2: publicAsset("music/chip2.mp3"),
+  chip3: publicAsset("music/chip3.mp3"),
 };
 const collisionEffects = {
   base: "chip1",

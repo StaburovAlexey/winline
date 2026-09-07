@@ -6,6 +6,7 @@ import cardData from "./card.json";
 import { createParallaxController } from "./parallax.js";
 import { createAudioController } from "./audio.js";
 import { createStartScreenMotion } from "./start-screen-motion.js";
+import { publicAsset } from "./publicAsset.js";
 import "modern-normalize";
 import "./style.css";
 
@@ -273,7 +274,7 @@ function renderPredictionText(text) {
 }
 
 function renderPrediction({ cardId, text }) {
-  predictionCardImage.src = `${import.meta.env.BASE_URL}assets/card/${cardId}.webp`;
+  predictionCardImage.src = publicAsset(`assets/card/${cardId}.webp`);
   renderPredictionText(text);
 }
 
@@ -285,7 +286,7 @@ function preloadPredictionCardImages() {
   let completedCards = 0;
   predictionCardsPreloadPromise = Promise.all(
     predictionCardIds.map((cardId) => {
-      const url = `${import.meta.env.BASE_URL}assets/card/${cardId}.webp`;
+      const url = publicAsset(`assets/card/${cardId}.webp`);
       return new Promise((resolve) => {
         const image = new Image();
         loadingManager.itemStart(url);
@@ -326,7 +327,7 @@ function preloadSceneAssets() {
   let completedAssets = 0;
   sceneAssetsPreloadPromise = Promise.all(
     [...sceneAssetImages].map((image) => {
-      const url = `${import.meta.env.BASE_URL}${image.dataset.src}`;
+      const url = publicAsset(image.dataset.src);
       return new Promise((resolve) => {
         loadingManager.itemStart(url);
         const markComplete = () => {
@@ -366,8 +367,7 @@ let predictionRevealPending = false;
 
 function handleShakeEnd({ duration = 0 } = {}) {
   const sceneIsReady =
-    modelPhysics !== null
-    && !sceneActionsElement.classList.contains("is-hidden");
+    !sceneActionsElement.classList.contains("is-hidden");
   const requiredDuration = Math.max(
     appConfig.parallax.shake.predictionDurationSeconds ?? 2,
     0,
@@ -405,8 +405,14 @@ function runPrediction() {
   }
 
   const burstStarted = modelPhysics?.applyPredictionBurst() === true;
-  if (burstStarted) {
-    renderPrediction(takeNextPrediction());
+  renderPrediction(takeNextPrediction());
+
+  if (!burstStarted) {
+    // Физический burst — необязательный визуальный эффект. Если Rapier ещё
+    // занят или недоступен на устройстве, карточка всё равно должна открыться.
+    predictionModal.hidden = false;
+    audio.playPrediction();
+  } else {
     closePredictionModal();
     predictionRevealPending = true;
     predictionButton.disabled = true;
@@ -475,7 +481,8 @@ const loadingProgressTasks = new Map([
 ]);
 const audioLoadingProgress = new Map();
 const minimumLoadingScreenDuration = 500;
-const clock = new THREE.Clock();
+const timer = new THREE.Timer();
+timer.connect(document);
 const frameInterval = 1000 / Math.max(appConfig.renderer.maxFps, 1);
 let lastFrameTime = 0;
 
@@ -555,16 +562,16 @@ function showLoadingScreen() {
 
 function prepareLoadingAssets() {
   if (!loadingLogoElement.hasAttribute("src")) {
-    loadingLogoElement.src = `${import.meta.env.BASE_URL}${loadingLogoElement.dataset.src}`;
+    loadingLogoElement.src = publicAsset(loadingLogoElement.dataset.src);
   }
 
   loadingScreenElement.style.setProperty(
     "--loading-background-image",
-    `url("${import.meta.env.BASE_URL}assets/loading-backhround.png")`,
+    `url("${publicAsset("assets/loading-backhround.png")}")`,
   );
   loadingBarElement.style.setProperty(
     "--loading-bar-image",
-    `url("${import.meta.env.BASE_URL}assets/load-bar.png")`,
+    `url("${publicAsset("assets/load-bar.png")}")`,
   );
 }
 
@@ -1025,7 +1032,8 @@ function animate(time) {
 
   lastFrameTime = time - (elapsed % frameInterval);
   stats?.begin();
-  const deltaTime = clock.getDelta();
+  timer.update(time);
+  const deltaTime = timer.getDelta();
   const physicsStartTime = performance.now();
   modelPhysics?.update(deltaTime);
   physicsStatsPanel?.update(performance.now() - physicsStartTime, 20);
