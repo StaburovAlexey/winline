@@ -222,6 +222,7 @@ function createClipCollider(node, config) {
   return {
     descriptor: RAPIER.ColliderDesc.cylinder(halfHeight, radius),
     center,
+    containmentRadius: Math.hypot(radius, halfHeight),
     boundaryRadius:
       center.length() + Math.hypot(visualRadius, visualHalfHeight),
     mass: config.clipMass,
@@ -243,6 +244,7 @@ function createBallCollider(node, config) {
   return {
     descriptor: RAPIER.ColliderDesc.ball(radius),
     center,
+    containmentRadius: radius,
     boundaryRadius: center.length() + visualRadius,
     mass: config.ballMass,
   };
@@ -340,6 +342,10 @@ class ModelPhysics {
     this.pressureCenterDirection = new THREE.Vector3();
     this.pressureTurbulenceDirection = new THREE.Vector3();
     this.fallDriftForce = new THREE.Vector3();
+    this.containmentCenter = new THREE.Vector3();
+    this.containmentCorrection = new THREE.Vector3();
+    this.containmentOffset = new THREE.Vector3();
+    this.containmentNormal = new THREE.Vector3();
     this.gravityMagnitude = Math.max(
       Math.hypot(config.gravity.x, config.gravity.y, config.gravity.z),
       Number.EPSILON,
@@ -361,6 +367,7 @@ class ModelPhysics {
     const sphereSize = sphereBounds.getSize(new THREE.Vector3());
     this.vortexCenter = sphereBounds.getCenter(new THREE.Vector3());
     this.vortexRadius = Math.max(sphereSize.x, sphereSize.z) * 0.5;
+    this.boundaryHalfExtents = sphereSize.multiplyScalar(0.5);
 
     const sphereCollider = createStaticTrimesh(
       this.world,
@@ -476,6 +483,7 @@ class ModelPhysics {
       enabled: false,
       launchOrder: hashName(`${node.name}:launch-order`),
       mass: colliderData.mass,
+      containmentRadius: colliderData.containmentRadius,
       pointerResponsiveness: 0.2 + seed * 1.3,
       pointerDepthResponse:
         Math.sign(rawPointerDepthResponse || 1) *
@@ -1424,6 +1432,74 @@ class ModelPhysics {
     }
   }
 
+  containBodiesInsideBoundary() {
+    if (this.config.boundaryContainmentEnabled === false) {
+      return;
+    }
+
+    const inset = Math.max(this.config.boundaryContainmentInset ?? 0, 0);
+
+    for (const item of this.bodies) {
+      if (!item.enabled || item.settled) {
+        continue;
+      }
+
+      item.collider.translation(this.containmentCenter);
+      this.containmentOffset
+        .copy(this.containmentCenter)
+        .sub(this.vortexCenter);
+
+      const safeX = Math.max(
+        this.boundaryHalfExtents.x - item.containmentRadius - inset,
+        Number.EPSILON,
+      );
+      const safeY = Math.max(
+        this.boundaryHalfExtents.y - item.containmentRadius - inset,
+        Number.EPSILON,
+      );
+      const safeZ = Math.max(
+        this.boundaryHalfExtents.z - item.containmentRadius - inset,
+        Number.EPSILON,
+      );
+      const normalizedDistanceSquared =
+        (this.containmentOffset.x / safeX) ** 2
+        + (this.containmentOffset.y / safeY) ** 2
+        + (this.containmentOffset.z / safeZ) ** 2;
+
+      if (normalizedDistanceSquared <= 1) {
+        continue;
+      }
+
+      const projectionScale = 1 / Math.sqrt(normalizedDistanceSquared);
+      this.containmentOffset.multiplyScalar(projectionScale);
+      this.containmentCenter
+        .copy(this.vortexCenter)
+        .add(this.containmentOffset);
+
+      item.body.translation(this.bodyTranslation);
+      item.collider.translation(this.containmentCorrection);
+      this.containmentCorrection
+        .subVectors(this.containmentCenter, this.containmentCorrection);
+      this.bodyTranslation.add(this.containmentCorrection);
+      item.body.setTranslation(this.bodyTranslation, true);
+
+      this.containmentNormal.set(
+        this.containmentOffset.x / (safeX * safeX),
+        this.containmentOffset.y / (safeY * safeY),
+        this.containmentOffset.z / (safeZ * safeZ),
+      ).normalize();
+      item.body.linvel(this.bodyVelocity);
+      const outwardSpeed = this.bodyVelocity.dot(this.containmentNormal);
+      if (outwardSpeed > 0) {
+        this.bodyVelocity.addScaledVector(
+          this.containmentNormal,
+          -outwardSpeed * (1 + this.config.boundaryRestitution),
+        );
+        item.body.setLinvel(this.bodyVelocity, true);
+      }
+    }
+  }
+
   getShakePressureCellKey(position, cellSize) {
     const gridOffset = 32;
     const gridAxisSize = 64;
@@ -2124,6 +2200,7 @@ class ModelPhysics {
       const worldStepStartTime = performance.now();
       this.world.step(this.eventQueue);
       this.drainCollisionEvents();
+      this.containBodiesInsideBoundary();
       worldStepTime += performance.now() - worldStepStartTime;
       this.settleCheckAccumulator += fixedTimeStep;
       if (
