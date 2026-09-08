@@ -87,8 +87,9 @@ export function createParallaxController({
   const configuredShake = config?.shake ?? {};
   const platformProfiles = configuredShake.platformProfiles ?? {};
   const coarsePointer = window.matchMedia("(pointer: coarse)");
+  const appleMobileDevice = coarsePointer.matches && isAppleMobileDevice();
   const platformShakeConfig = coarsePointer.matches
-    ? isAppleMobileDevice()
+    ? appleMobileDevice
       ? platformProfiles.ios
       : platformProfiles.android
     : null;
@@ -191,12 +192,13 @@ export function createParallaxController({
     const angle = THREE.MathUtils.degToRad(getScreenOrientationAngle());
     const cosine = Math.cos(angle);
     const sine = Math.sin(angle);
-    // Remove user acceleration when the browser supplies it, then invert the
-    // support-force vector to obtain the direction of physical gravity.
-    const deviceGravityX = -(
+    // Safari on iOS reports the gravity contribution with the opposite sign
+    // to Chromium on Android, so normalize both platforms here.
+    const gravitySign = appleMobileDevice ? 1 : -1;
+    const deviceGravityX = gravitySign * (
       acceleration.x - (linearAcceleration?.x ?? 0)
     );
-    const deviceGravityY = -(
+    const deviceGravityY = gravitySign * (
       acceleration.y - (linearAcceleration?.y ?? 0)
     );
     const screenX = deviceGravityX * cosine - deviceGravityY * sine;
