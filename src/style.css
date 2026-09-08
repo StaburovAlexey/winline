@@ -328,6 +328,17 @@ body {
   will-change: opacity, transform, translate, rotate;
 }
 
+/* iOS 18 WebKit can stop an infinite CSS animation after another animation
+   starts. On Apple touch devices the floating transform is driven by JS. */
+#start-screen.uses-js-start-float .start-img {
+  animation-name: start-object-enter;
+  animation-duration: 900ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-delay: var(--start-enter-delay, 0ms);
+  animation-iteration-count: 1;
+  animation-fill-mode: both;
+}
+
 #start-headphone {
   --start-enter-delay: 40ms;
   --start-float-delay: 1.35s;
@@ -388,7 +399,7 @@ body {
 }
 #start-keyboard {
   width: clamp(85px, 11.727%, 196.087890625px);
-  top: 24%;
+  top: 12%;
   left: -2%;
 }
 #start-cup-group {
@@ -1347,10 +1358,10 @@ body.is-loading-preview #loading-screen {
 
   .scene-environment__background--top {
     top: auto;
-    bottom: 320px;
+    bottom: 358px;
     left: 50%;
     z-index: 1;
-    width: 1524px;
+    width: 1134px;
 
     object-fit: cover;
     object-position: center bottom;
@@ -1446,11 +1457,11 @@ body.is-loading-preview #loading-screen {
   }
 
   #start-keyboard {
-    width: 85px;
-    height: 160px;
-    top: 108px;
-    left: -25.09px;
-  }
+    width: 117px;
+    height: 218px;
+    top: 71px;
+    left: -30.09px;
+}
 
   #start-cup-group {
     width: 62px;
@@ -1557,9 +1568,9 @@ body.is-loading-preview #loading-screen {
 /* Компактная основная сцена: отдельные настройки для экранов 420px и меньше. */
 @media (max-width: 420px) {
   .scene-environment__background--top {
-    bottom: 320px;
+    bottom: 358px;
     left: 50%;
-    width: 1524px;
+    width: 1134px;
     transform: translate3d(
       calc(-50% + var(--scene-background-top-parallax-x)),
       var(--scene-background-top-parallax-y),

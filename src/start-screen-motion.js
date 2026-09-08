@@ -7,6 +7,7 @@ const SPRING_DAMPING = 24;
 const MAX_FRAME_DELTA = 0.032;
 const SETTLE_POSITION_EPSILON = 0.01;
 const SETTLE_VELOCITY_EPSILON = 0.01;
+const FULL_ROTATION_RADIANS = Math.PI * 2;
 
 const TARGET_CONFIG = {
   "#start-headphone": {
@@ -49,6 +50,28 @@ const TARGET_CONFIG = {
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
+}
+
+function isAppleMobileDevice() {
+  const userAgent = navigator.userAgent ?? "";
+  const platform = navigator.userAgentData?.platform
+    ?? navigator.platform
+    ?? "";
+
+  return /iPad|iPhone|iPod/.test(userAgent)
+    || (platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+function parseCssTime(value) {
+  const normalizedValue = value.trim().toLowerCase();
+  const numericValue = Number.parseFloat(normalizedValue);
+  if (!Number.isFinite(numericValue)) {
+    return 0;
+  }
+
+  return normalizedValue.endsWith("ms")
+    ? numericValue
+    : numericValue * 1000;
 }
 
 function getDistanceToRect(x, y, rect) {
@@ -107,10 +130,23 @@ function createTargetState(element) {
     maxRotation: 1.3,
     touchImpulse: 165,
   };
+  const style = window.getComputedStyle(element);
 
   return {
     element,
     config,
+    floatX: Number.parseFloat(style.getPropertyValue("--start-float-x")) || 0,
+    floatY: Number.parseFloat(style.getPropertyValue("--start-float-y")) || 0,
+    floatRotation:
+      Number.parseFloat(style.getPropertyValue("--start-float-rotation")) || 0,
+    floatDurationMs: Math.max(
+      parseCssTime(style.getPropertyValue("--start-float-duration")),
+      1,
+    ),
+    floatDelayMs: Math.max(
+      parseCssTime(style.getPropertyValue("--start-float-delay")),
+      0,
+    ),
     x: 0,
     y: 0,
     rotation: 0,
@@ -125,12 +161,16 @@ function createTargetState(element) {
   };
 }
 
-function setMotionVariables(state) {
-  state.element.style.setProperty("--start-bounce-x", `${state.x.toFixed(3)}px`);
-  state.element.style.setProperty("--start-bounce-y", `${state.y.toFixed(3)}px`);
+function setMotionVariables(state, floatStrength = 0) {
+  const x = state.x + state.floatX * floatStrength;
+  const y = state.y - state.floatY * floatStrength;
+  const rotation = state.rotation + state.floatRotation * floatStrength;
+
+  state.element.style.setProperty("--start-bounce-x", `${x.toFixed(3)}px`);
+  state.element.style.setProperty("--start-bounce-y", `${y.toFixed(3)}px`);
   state.element.style.setProperty(
     "--start-bounce-rotation",
-    `${state.rotation.toFixed(3)}deg`,
+    `${rotation.toFixed(3)}deg`,
   );
 }
 
@@ -138,6 +178,9 @@ export function createStartScreenMotion({ root, targets }) {
   if (!(root instanceof HTMLElement)) {
     return { dispose() {} };
   }
+
+  const useJavaScriptFloat = isAppleMobileDevice();
+  root.classList.toggle("uses-js-start-float", useJavaScriptFloat);
 
   const targetStates = [...targets]
     .filter((element) => element instanceof HTMLElement)
@@ -151,7 +194,18 @@ export function createStartScreenMotion({ root, targets }) {
   const reducedMotion = window.matchMedia(REDUCED_MOTION_QUERY);
   let animationFrameId = null;
   let lastFrameTime = performance.now();
+  let floatStartedAt = lastFrameTime;
   let disposed = false;
+
+  function getFloatStrength(state, time) {
+    const elapsed = time - floatStartedAt - state.floatDelayMs;
+    if (elapsed <= 0) {
+      return 0;
+    }
+
+    const progress = (elapsed % state.floatDurationMs) / state.floatDurationMs;
+    return (1 - Math.cos(progress * FULL_ROTATION_RADIANS)) * 0.5;
+  }
 
   function clearTargets() {
     for (const state of targetStates) {
@@ -199,7 +253,9 @@ export function createStartScreenMotion({ root, targets }) {
       MAX_FRAME_DELTA,
     );
     lastFrameTime = time;
-    let isMoving = false;
+    const floatIsActive =
+      useJavaScriptFloat && !root.classList.contains("is-hidden");
+    let isMoving = floatIsActive;
 
     for (const state of targetStates) {
       const accelerationX =
@@ -246,7 +302,10 @@ export function createStartScreenMotion({ root, targets }) {
         isMoving = true;
       }
 
-      setMotionVariables(state);
+      setMotionVariables(
+        state,
+        floatIsActive ? getFloatStrength(state, time) : 0,
+      );
     }
 
     if (isMoving) {
@@ -371,6 +430,10 @@ export function createStartScreenMotion({ root, targets }) {
     }
 
     lastFrameTime = performance.now();
+    floatStartedAt = lastFrameTime;
+    if (useJavaScriptFloat) {
+      requestAnimation();
+    }
   }
 
   root.addEventListener("pointermove", handlePointerMove, { passive: true });
@@ -380,6 +443,8 @@ export function createStartScreenMotion({ root, targets }) {
 
   if (reducedMotion.matches) {
     writeZeroMotion();
+  } else if (useJavaScriptFloat) {
+    requestAnimation();
   }
 
   return {
@@ -401,6 +466,7 @@ export function createStartScreenMotion({ root, targets }) {
 
       clearTargets();
       writeZeroMotion();
+      root.classList.remove("uses-js-start-float");
     },
   };
 }

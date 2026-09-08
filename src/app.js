@@ -367,7 +367,8 @@ let predictionRevealPending = false;
 
 function handleShakeEnd({ duration = 0 } = {}) {
   const sceneIsReady =
-    !sceneActionsElement.classList.contains("is-hidden");
+    modelPhysics !== null
+    && !sceneActionsElement.classList.contains("is-hidden");
   const requiredDuration = Math.max(
     appConfig.parallax.shake.predictionDurationSeconds ?? 2,
     0,
@@ -405,14 +406,8 @@ function runPrediction() {
   }
 
   const burstStarted = modelPhysics?.applyPredictionBurst() === true;
-  renderPrediction(takeNextPrediction());
-
-  if (!burstStarted) {
-    // Физический burst — необязательный визуальный эффект. Если Rapier ещё
-    // занят или недоступен на устройстве, карточка всё равно должна открыться.
-    predictionModal.hidden = false;
-    audio.playPrediction();
-  } else {
+  if (burstStarted) {
+    renderPrediction(takeNextPrediction());
     closePredictionModal();
     predictionRevealPending = true;
     predictionButton.disabled = true;

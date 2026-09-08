@@ -103,7 +103,10 @@
     </section>
     <div id="scene-environment" aria-hidden="true">
       <div class="scene-environment__plane">
-        <img class="scene-environment__background scene-environment__background--top" data-src="assets/main-page/background-top.png" alt="">
+        <picture>
+          <source media="(max-width: 767px)" srcset="%VITE_PUBLIC_CDN%/assets/main-page/background-top-767.png">
+          <img class="scene-environment__background scene-environment__background--top" data-src="assets/main-page/background-top.png" alt="">
+        </picture>
         <img class="scene-environment__background scene-environment__background--bottom" data-src="assets/main-page/background-bottom.png" alt="">
       </div>
     </div>
