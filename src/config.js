@@ -115,7 +115,7 @@ export const appConfig = {
       platformProfiles: {
         android: {
           visualEnabled: false,
-          physicsEnabled: false,
+          physicsEnabled: true,
           cardinalDirections: false,
           invertPlanarDirection: true,
           minimumDirectionSampleSeconds: 0.02,
@@ -124,7 +124,7 @@ export const appConfig = {
         },
         ios: {
           visualEnabled: false,
-          physicsEnabled: false,
+          physicsEnabled: true,
           cardinalDirections: true,
           invertPlanarDirection: false,
           minimumDirectionSampleSeconds: 0,
