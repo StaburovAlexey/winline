@@ -340,11 +340,17 @@ class ModelPhysics {
     this.pressureCenterDirection = new THREE.Vector3();
     this.pressureTurbulenceDirection = new THREE.Vector3();
     this.fallDriftForce = new THREE.Vector3();
-    this.upAxis = new THREE.Vector3(
-      -config.gravity.x,
-      -config.gravity.y,
-      -config.gravity.z,
+    this.gravityMagnitude = Math.max(
+      Math.hypot(config.gravity.x, config.gravity.y, config.gravity.z),
+      Number.EPSILON,
+    );
+    this.currentGravityDirection = new THREE.Vector3(
+      config.gravity.x,
+      config.gravity.y,
+      config.gravity.z,
     ).normalize();
+    this.targetGravityDirection = this.currentGravityDirection.clone();
+    this.upAxis = this.currentGravityDirection.clone().negate();
 
     root.updateMatrixWorld(true);
     const rootInverseWorldMatrix = root.matrixWorld.clone().invert();
@@ -480,6 +486,7 @@ class ModelPhysics {
       ).multiplyScalar(colliderData.boundaryRadius),
       settled: false,
       settleTime: 0,
+      settledGravityDirection: this.currentGravityDirection.clone(),
       fallStarted: false,
       fallGravityScale: 1,
       fallLinearDamping: this.config.linearDamping,
@@ -770,6 +777,81 @@ class ModelPhysics {
       .copy(this.cameraForward)
       .applyQuaternion(this.rootWorldQuaternion)
       .normalize();
+  }
+
+  setGravityDirection(direction) {
+    if (
+      this.config.tiltGravity?.enabled !== true
+      || !Number.isFinite(direction?.x)
+      || !Number.isFinite(direction?.y)
+    ) {
+      return;
+    }
+
+    const directionLength = Math.hypot(direction.x, direction.y);
+    if (directionLength <= Number.EPSILON) {
+      return;
+    }
+
+    this.updateCameraAxes();
+    this.targetGravityDirection
+      .copy(this.localCameraRight)
+      .multiplyScalar(direction.x / directionLength)
+      .addScaledVector(
+        this.localCameraUp,
+        direction.y / directionLength,
+      )
+      .normalize();
+
+    const wakeAngle = THREE.MathUtils.degToRad(
+      Math.max(this.config.tiltGravity?.wakeAngleDegrees ?? 3, 0),
+    );
+    const wakeDirectionDot = Math.cos(wakeAngle);
+    let wokeBody = false;
+
+    for (const item of this.bodies) {
+      if (
+        !item.enabled
+        || !item.settled
+        || item.settledGravityDirection.dot(this.targetGravityDirection)
+          > wakeDirectionDot
+      ) {
+        continue;
+      }
+
+      item.body.wakeUp();
+      item.settled = false;
+      item.settleTime = 0;
+      this.activeBodyCount += 1;
+      wokeBody = true;
+    }
+
+    if (wokeBody) {
+      this.physicsActivated = true;
+      this.settleCheckAccumulator = 0;
+    }
+  }
+
+  updateGravity(deltaTime) {
+    if (this.config.tiltGravity?.enabled !== true) {
+      return;
+    }
+
+    const smoothingTime = Math.max(
+      this.config.tiltGravity?.smoothingTimeSeconds ?? 0.12,
+      Number.EPSILON,
+    );
+    const gravityBlend = 1 - Math.exp(-Math.max(deltaTime, 0) / smoothingTime);
+    this.currentGravityDirection
+      .lerp(this.targetGravityDirection, gravityBlend)
+      .normalize();
+    this.upAxis.copy(this.currentGravityDirection).negate();
+    this.world.gravity.x =
+      this.currentGravityDirection.x * this.gravityMagnitude;
+    this.world.gravity.y =
+      this.currentGravityDirection.y * this.gravityMagnitude;
+    this.world.gravity.z =
+      this.currentGravityDirection.z * this.gravityMagnitude;
   }
 
   applyPointerVelocity(
@@ -1708,16 +1790,19 @@ class ModelPhysics {
     }
   }
 
-  isTouchingFloor(item) {
-    let touchingFloor = false;
+  isTouchingSupport(item) {
+    let touchingSupport = false;
 
     this.world.contactPairsWith(item.collider, (otherCollider) => {
-      if (this.floorColliderHandles.has(otherCollider.handle)) {
-        touchingFloor = true;
+      if (
+        otherCollider.handle === this.sphereColliderHandle
+        || this.floorColliderHandles.has(otherCollider.handle)
+      ) {
+        touchingSupport = true;
       }
     });
 
-    return touchingFloor;
+    return touchingSupport;
   }
 
   updateSettledBodies(deltaTime) {
@@ -1729,7 +1814,7 @@ class ModelPhysics {
     }
 
     for (const item of this.bodies) {
-      if (!item.enabled || item.settled || !this.isTouchingFloor(item)) {
+      if (!item.enabled || item.settled || !this.isTouchingSupport(item)) {
         item.settleTime = 0;
         continue;
       }
@@ -1767,6 +1852,7 @@ class ModelPhysics {
       item.body.setAngularDamping(this.config.angularDamping);
       item.body.sleep();
       item.settled = true;
+      item.settledGravityDirection.copy(this.currentGravityDirection);
       this.activeBodyCount = Math.max(this.activeBodyCount - 1, 0);
     }
   }
@@ -1975,6 +2061,7 @@ class ModelPhysics {
   }
 
   update(deltaTime) {
+    this.updateGravity(deltaTime);
     this.processPendingPredictionBurst(deltaTime);
     const queuedBodies = this.getQueuedBodyCount();
     if (

@@ -417,16 +417,6 @@ body {
   transform: rotate(22.95deg);
 }
 
-#start-smoke {
-  position: absolute;
-  z-index: 2;
-  top: -33%;
-  left: 55%;
-  display: block;
-  width: 81%;
-  height: auto;
-  pointer-events: none;
-}
 #start-ball {
   top: 40%;
   right: 0%;

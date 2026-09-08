@@ -70,6 +70,8 @@ export function createParallaxController({
   backgroundElement,
   permissionStatusElement,
   config,
+  gravityConfig,
+  onGravityChange,
   onShake,
   onShakeEnd,
 }) {
@@ -80,6 +82,8 @@ export function createParallaxController({
   const topLayerDepth = configuredLayers.top ?? 0.45;
   const centerLayerDepth = configuredLayers.center ?? 0.85;
   const bottomLayerDepth = configuredLayers.bottom ?? 1.2;
+  const mobileOrientationEnabled = config?.mobile?.orientationEnabled !== false;
+  const tiltGravityEnabled = gravityConfig?.enabled === true;
   const configuredShake = config?.shake ?? {};
   const platformProfiles = configuredShake.platformProfiles ?? {};
   const coarsePointer = window.matchMedia("(pointer: coarse)");
@@ -94,6 +98,9 @@ export function createParallaxController({
     ...(platformShakeConfig ?? {}),
   };
   const shakeCallback = typeof onShake === "function" ? onShake : () => {};
+  const gravityCallback = typeof onGravityChange === "function"
+    ? onGravityChange
+    : () => {};
   const shakeEndCallback = typeof onShakeEnd === "function"
     ? onShakeEnd
     : () => {};
@@ -112,6 +119,7 @@ export function createParallaxController({
   const cameraShakeOffset = new THREE.Vector2();
   const shakeDirection = new THREE.Vector2(1, 0);
   const motionDirection = new THREE.Vector2();
+  const gravityDirection = new THREE.Vector2(0, -1);
   const initialShakeDirection = new THREE.Vector2();
   const accumulatedShakeDirection = new THREE.Vector2();
   const motionAcceleration = new THREE.Vector3();
@@ -169,6 +177,53 @@ export function createParallaxController({
     motionAcceleration.set(0, 0, 0);
     motionGravity.set(0, 0, 0);
     resetMotionSamples();
+  }
+
+  function emitGravityDirection(acceleration, linearAcceleration = null) {
+    if (
+      !tiltGravityEnabled
+      || !Number.isFinite(acceleration?.x)
+      || !Number.isFinite(acceleration?.y)
+    ) {
+      return;
+    }
+
+    const angle = THREE.MathUtils.degToRad(getScreenOrientationAngle());
+    const cosine = Math.cos(angle);
+    const sine = Math.sin(angle);
+    // Remove user acceleration when the browser supplies it, then invert the
+    // support-force vector to obtain the direction of physical gravity.
+    const deviceGravityX = -(
+      acceleration.x - (linearAcceleration?.x ?? 0)
+    );
+    const deviceGravityY = -(
+      acceleration.y - (linearAcceleration?.y ?? 0)
+    );
+    const screenX = deviceGravityX * cosine - deviceGravityY * sine;
+    const screenY = deviceGravityX * sine + deviceGravityY * cosine;
+    const projectionMagnitude = Math.hypot(screenX, screenY);
+    const minimumProjectionAcceleration = Math.max(
+      gravityConfig?.minimumProjectionAcceleration ?? 1.25,
+      0,
+    );
+
+    if (projectionMagnitude < minimumProjectionAcceleration) {
+      return;
+    }
+
+    gravityDirection.set(
+      screenX / projectionMagnitude,
+      screenY / projectionMagnitude,
+    );
+
+    try {
+      gravityCallback({
+        x: gravityDirection.x,
+        y: gravityDirection.y,
+      });
+    } catch (error) {
+      console.error("Не удалось применить наклон к физике", error);
+    }
   }
 
   function clearCameraShake(notify = false) {
@@ -338,7 +393,8 @@ export function createParallaxController({
 
   function handleDeviceOrientation(event) {
     if (
-      !isActive()
+      !mobileOrientationEnabled
+      || !isActive()
       || isDesktopMode()
       || !Number.isFinite(event.beta)
       || !Number.isFinite(event.gamma)
@@ -563,7 +619,7 @@ export function createParallaxController({
 
   function handleDeviceMotion(event) {
     if (
-      !shakeConfig.enabled
+      (!shakeConfig.enabled && !tiltGravityEnabled)
       || !isActive()
       || isDesktopMode()
     ) {
@@ -582,6 +638,17 @@ export function createParallaxController({
       && Number.isFinite(gravityAcceleration?.z);
 
     if (!hasDirectAcceleration && !hasGravityAcceleration) {
+      return;
+    }
+
+    if (hasGravityAcceleration) {
+      emitGravityDirection(
+        gravityAcceleration,
+        hasDirectAcceleration ? directAcceleration : null,
+      );
+    }
+
+    if (!shakeConfig.enabled) {
       return;
     }
 
@@ -704,6 +771,7 @@ export function createParallaxController({
 
     if (
       !orientationListening
+      && mobileOrientationEnabled
       && typeof DeviceOrientation !== "undefined"
       && orientationPermissionState !== "denied"
     ) {
@@ -719,7 +787,7 @@ export function createParallaxController({
     if (
       !motionListening
       && typeof DeviceMotion !== "undefined"
-      && shakeConfig.enabled
+      && (shakeConfig.enabled || tiltGravityEnabled)
       && motionPermissionState !== "denied"
     ) {
       motionListening = true;
@@ -747,7 +815,9 @@ export function createParallaxController({
 
     const DeviceOrientation = window.DeviceOrientationEvent;
     const DeviceMotion = window.DeviceMotionEvent;
-    const hasOrientation = typeof DeviceOrientation !== "undefined";
+    const hasOrientation =
+      mobileOrientationEnabled
+      && typeof DeviceOrientation !== "undefined";
     const hasMotion = typeof DeviceMotion !== "undefined";
 
     if (!hasOrientation && !hasMotion) {
@@ -757,13 +827,14 @@ export function createParallaxController({
       return;
     }
 
-    if (shakeConfig.enabled && !hasMotion) {
+    if ((shakeConfig.enabled || tiltGravityEnabled) && !hasMotion) {
       showPermissionError("Акселерометр недоступен в этом браузере.");
       return;
     }
 
     const needsOrientation = hasOrientation && !orientationListening;
-    const needsMotion = shakeConfig.enabled && !motionListening;
+    const needsMotion = (shakeConfig.enabled || tiltGravityEnabled)
+      && !motionListening;
     if (!needsOrientation && !needsMotion) {
       hidePermissionUi();
       return;
@@ -783,7 +854,7 @@ export function createParallaxController({
     if (orientationDenied || motionDenied) {
       showPermissionError(
         motionDenied
-          ? "Доступ к встряске отклонён. Разрешите Motion в настройках браузера и перезагрузите страницу."
+          ? "Доступ к датчикам движения отклонён. Разрешите Motion в настройках браузера и перезагрузите страницу."
           : "Доступ к гироскопу отклонён. Разрешите движение в настройках браузера и перезагрузите страницу.",
       );
       return;
@@ -813,10 +884,14 @@ export function createParallaxController({
 
     const DeviceOrientation = window.DeviceOrientationEvent;
     const DeviceMotion = window.DeviceMotionEvent;
-    const hasOrientation = typeof DeviceOrientation !== "undefined";
+    const hasOrientation =
+      mobileOrientationEnabled
+      && typeof DeviceOrientation !== "undefined";
     const hasMotion = typeof DeviceMotion !== "undefined";
     const needsOrientation = hasOrientation && !orientationListening;
-    const needsMotion = shakeConfig.enabled && hasMotion && !motionListening;
+    const needsMotion = (shakeConfig.enabled || tiltGravityEnabled)
+      && hasMotion
+      && !motionListening;
     const requestOrientation =
       needsOrientation
       && orientationPermissionState !== "denied"
@@ -831,7 +906,7 @@ export function createParallaxController({
       return false;
     }
 
-    if (shakeConfig.enabled && !hasMotion) {
+    if ((shakeConfig.enabled || tiltGravityEnabled) && !hasMotion) {
       showPermissionError("Акселерометр недоступен в этом браузере.");
       return false;
     }

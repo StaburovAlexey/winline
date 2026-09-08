@@ -90,6 +90,7 @@ export const appConfig = {
       backgroundY: 10,
     },
     mobile: {
+      orientationEnabled: false,
       tiltRangeDegrees: 18,
       cameraX: 0,
       cameraY: 0,
@@ -149,6 +150,12 @@ export const appConfig = {
     sphereColliderName: "Sphere_colaider",
     staticBaseColliderName: "static_base_colaider",
     gravity: { x: 0, y: -0.55, z: 0 },
+    tiltGravity: {
+      enabled: true,
+      smoothingTimeSeconds: 0.12,
+      wakeAngleDegrees: 3,
+      minimumProjectionAcceleration: 1.25,
+    },
     fixedTimeStep: 1 / 60,
     maxSubSteps: 2,
     physicsFrameBudgetMs: 8,

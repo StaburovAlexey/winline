@@ -152,6 +152,10 @@ const parallax = createParallaxController({
   backgroundElement: document.body,
   permissionStatusElement: motionPermissionStatusElement,
   config: appConfig.parallax,
+  gravityConfig: appConfig.physics.tiltGravity,
+  onGravityChange: (direction) => {
+    modelPhysics?.setGravityDirection(direction);
+  },
   onShake: ({ strength, direction, coherence }) => {
     modelPhysics?.applyShake({ strength, direction, coherence });
   },
