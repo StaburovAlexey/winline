@@ -7,6 +7,7 @@ import { createParallaxController } from "./parallax.js";
 import { createAudioController } from "./audio.js";
 import { createStartScreenMotion } from "./start-screen-motion.js";
 import { publicAsset } from "./publicAsset.js";
+import { AnalyticsService } from "./analytics.js";
 import "modern-normalize";
 import "./style.css";
 
@@ -58,6 +59,9 @@ if (
   throw new Error("Scene root elements are missing");
 }
 
+const analytics = new AnalyticsService();
+analytics.pageView("start");
+
 const startScreenMotion = createStartScreenMotion({
   root: startScreenElement,
   targets: [...startScreenElement.querySelectorAll(".start-img")],
@@ -82,6 +86,7 @@ if (loadingScreenPreviewMode) {
   loadingScreenElement.classList.remove("is-hidden");
   loadingScreenElement.setAttribute("aria-hidden", "false");
   startScreenElement.classList.add("is-hidden");
+  analytics.pageView("loading");
 }
 
 const scene = new THREE.Scene();
@@ -386,8 +391,10 @@ function handleShakeEnd({ duration = 0 } = {}) {
     return;
   }
 
-  renderPrediction(takeNextPrediction());
+  const prediction = takeNextPrediction();
+  renderPrediction(prediction);
   predictionModal.hidden = false;
+  analytics.predictionReceived({ source: "shake", cardId: prediction.cardId });
   audio.playPrediction();
 }
 
@@ -411,7 +418,8 @@ function runPrediction() {
 
   const burstStarted = modelPhysics?.applyPredictionBurst() === true;
   if (burstStarted) {
-    renderPrediction(takeNextPrediction());
+    const prediction = takeNextPrediction();
+    renderPrediction(prediction);
     closePredictionModal();
     predictionRevealPending = true;
     predictionButton.disabled = true;
@@ -421,6 +429,10 @@ function runPrediction() {
     window.setTimeout(() => {
       predictionModal.hidden = false;
       predictionRevealPending = false;
+      analytics.predictionReceived({
+        source: "button",
+        cardId: prediction.cardId,
+      });
       audio.playPrediction();
     }, 1000);
   }
@@ -557,6 +569,7 @@ function showLoadingScreen() {
   prepareLoadingAssets();
   loadingScreenElement.classList.remove("is-hidden");
   loadingScreenElement.setAttribute("aria-hidden", "false");
+  analytics.pageView("loading");
 }
 
 function prepareLoadingAssets() {
@@ -1191,6 +1204,7 @@ async function loadScene() {
 
 window.addEventListener("resize", resize, { passive: true });
 window.addEventListener("pagehide", () => {
+  analytics.dispose();
   renderer.setAnimationLoop(null);
   modelPhysics?.dispose();
   parallax.dispose();
@@ -1264,4 +1278,5 @@ startButton.addEventListener("click", async () => {
 
   hideLoadingScreen();
   sceneActionsElement.classList.remove("is-hidden");
+  analytics.pageView("scene");
 });
