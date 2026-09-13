@@ -23,7 +23,6 @@ const loadingBarElement = document.querySelector("#loading-bar");
 const loadingLabelElement = document.querySelector("#loading-label");
 const loadingProgressElement = document.querySelector("#loading-progress");
 const sceneActionsElement = document.querySelector("#scene-actions");
-const sceneShakeHintElement = document.querySelector("#scene-shake-hint");
 const predictionButton = document.querySelector("#prediction-button");
 const predictionModal = document.querySelector("#prediction-modal");
 const predictionMoreButton = document.querySelector("#prediction-more-button");
@@ -47,7 +46,6 @@ if (
   || !(loadingLabelElement instanceof HTMLElement)
   || !(loadingProgressElement instanceof HTMLElement)
   || !(sceneActionsElement instanceof HTMLElement)
-  || !(sceneShakeHintElement instanceof HTMLElement)
   || !(predictionButton instanceof HTMLButtonElement)
   || !(predictionModal instanceof HTMLElement)
   || !(predictionMoreButton instanceof HTMLButtonElement)
@@ -146,6 +144,46 @@ controls.maxDistance = appConfig.controls.maxDistance;
 
 let model = null;
 let modelPhysics = null;
+let sphereColliderNode = null;
+const sphereRaycaster = new THREE.Raycaster();
+const spherePointer = new THREE.Vector2();
+let sphereTapStart = null;
+const sphereTapThreshold = 10;
+
+renderer.domElement.addEventListener("pointerdown", (event) => {
+  if (!event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) return;
+  sphereTapStart = { id: event.pointerId, x: event.clientX, y: event.clientY };
+});
+renderer.domElement.addEventListener("pointercancel", () => {
+  sphereTapStart = null;
+});
+renderer.domElement.addEventListener("pointermove", (event) => {
+  if (
+    sphereTapStart?.id === event.pointerId
+    && Math.hypot(
+      event.clientX - sphereTapStart.x,
+      event.clientY - sphereTapStart.y,
+    ) > sphereTapThreshold
+  ) {
+    sphereTapStart = null;
+  }
+});
+renderer.domElement.addEventListener("pointerup", (event) => {
+  const tap = sphereTapStart;
+  sphereTapStart = null;
+  if (!tap || tap.id !== event.pointerId || !sphereColliderNode || !modelPhysics) return;
+  if (Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > sphereTapThreshold) return;
+  const bounds = renderer.domElement.getBoundingClientRect();
+  spherePointer.set(
+    ((event.clientX - bounds.left) / bounds.width) * 2 - 1,
+    -((event.clientY - bounds.top) / bounds.height) * 2 + 1,
+  );
+  sphereRaycaster.setFromCamera(spherePointer, camera);
+  sphereColliderNode.updateWorldMatrix(true, false);
+  if (sphereRaycaster.intersectObject(sphereColliderNode, false).length > 0) {
+    modelPhysics.applyPredictionBurst();
+  }
+});
 let sphereOverlay = null;
 let sphereReflection = null;
 const sphereOverlayParentQuaternion = new THREE.Quaternion();
@@ -164,13 +202,7 @@ const parallax = createParallaxController({
   onShake: ({ strength, direction, coherence }) => {
     modelPhysics?.applyShake({ strength, direction, coherence });
   },
-  onShakeEnd: handleShakeEnd,
 });
-
-const hasShakeInput =
-  typeof window.DeviceMotionEvent !== "undefined"
-  && window.matchMedia("(pointer: coarse)").matches;
-sceneShakeHintElement.hidden = !hasShakeInput;
 
 const predictionStorageKey = "winline:prediction-deck:v1";
 const predictionCards = new Map(
@@ -374,30 +406,6 @@ function closePredictionModal() {
 
 let predictionRevealPending = false;
 
-function handleShakeEnd({ duration = 0 } = {}) {
-  const sceneIsReady =
-    modelPhysics !== null
-    && !sceneActionsElement.classList.contains("is-hidden");
-  const requiredDuration = Math.max(
-    appConfig.parallax.shake.predictionDurationSeconds ?? 2,
-    0,
-  );
-  if (
-    !sceneIsReady
-    || duration < requiredDuration
-    || predictionRevealPending
-    || !predictionModal.hidden
-  ) {
-    return;
-  }
-
-  const prediction = takeNextPrediction();
-  renderPrediction(prediction);
-  predictionModal.hidden = false;
-  analytics.predictionReceived({ source: "shake", cardId: prediction.cardId });
-  audio.playPrediction();
-}
-
 predictionModal.addEventListener("click", (event) => {
   if (event.target === predictionModal) {
     closePredictionModal();
@@ -416,26 +424,19 @@ function runPrediction() {
     return;
   }
 
-  const burstStarted = modelPhysics?.applyPredictionBurst() === true;
-  if (burstStarted) {
-    const prediction = takeNextPrediction();
-    renderPrediction(prediction);
-    closePredictionModal();
-    predictionRevealPending = true;
-    predictionButton.disabled = true;
-    window.setTimeout(() => {
-      predictionButton.disabled = false;
-    }, appConfig.physics.predictionBurst.cooldownMs);
-    window.setTimeout(() => {
-      predictionModal.hidden = false;
-      predictionRevealPending = false;
-      analytics.predictionReceived({
-        source: "button",
-        cardId: prediction.cardId,
-      });
-      audio.playPrediction();
-    }, 1000);
-  }
+  modelPhysics?.applyPredictionBurst();
+  const prediction = takeNextPrediction();
+  renderPrediction(prediction);
+  closePredictionModal();
+  predictionRevealPending = true;
+  predictionButton.disabled = true;
+  window.setTimeout(() => {
+    predictionModal.hidden = false;
+    predictionRevealPending = false;
+    predictionButton.disabled = false;
+    analytics.predictionReceived({ source: "button", cardId: prediction.cardId });
+    audio.playPrediction();
+  }, 1000);
   predictionButton.blur();
 }
 
@@ -444,22 +445,10 @@ predictionMoreButton.addEventListener("click", runPrediction);
 
 if (import.meta.env.DEV && !loadingScreenPreviewMode) {
   const shakeTestCases = [
-    {
-      label: "телефон вправо",
-      acceleration: { x: 4, y: 0, z: 0 },
-    },
-    {
-      label: "телефон влево",
-      acceleration: { x: -4, y: 0, z: 0 },
-    },
-    {
-      label: "телефон от себя",
-      acceleration: { x: 0, y: 0, z: -4 },
-    },
-    {
-      label: "телефон на себя",
-      acceleration: { x: 0, y: 0, z: 4 },
-    },
+    { label: "телефон вправо", acceleration: { x: 4, y: 0, z: 0 } },
+    { label: "телефон влево", acceleration: { x: -4, y: 0, z: 0 } },
+    { label: "телефон от себя", acceleration: { x: 0, y: 0, z: -4 } },
+    { label: "телефон на себя", acceleration: { x: 0, y: 0, z: 4 } },
   ];
   let shakeTestIndex = 0;
   const updateShakeTestLabel = () => {
@@ -1111,6 +1100,7 @@ async function loadScene() {
   const sphereCollider = gltf.scene.getObjectByName(
     appConfig.physics.sphereColliderName,
   );
+  sphereColliderNode = sphereCollider ?? null;
   if (sphereCollider) {
     sphereCollider.visible = false;
   }

@@ -57,18 +57,6 @@ export function createAudioController({ collisionSound = {}, onProgress } = {}) 
   const context = AudioContextConstructor
     ? new AudioContextConstructor()
     : null;
-  const minImpactSpeed = Math.max(
-    Number.isFinite(collisionSound.minImpactSpeed)
-      ? collisionSound.minImpactSpeed
-      : 0.45,
-    0,
-  );
-  const fullVolumeImpactSpeed = Math.max(
-    Number.isFinite(collisionSound.fullVolumeImpactSpeed)
-      ? collisionSound.fullVolumeImpactSpeed
-      : 2,
-    minImpactSpeed + Number.EPSILON,
-  );
   const minVolume = clamp(
     Number.isFinite(collisionSound.minVolume)
       ? collisionSound.minVolume
@@ -86,13 +74,13 @@ export function createAudioController({ collisionSound = {}, onProgress } = {}) 
   const playbackRateMin = Math.max(
     Number.isFinite(collisionSound.playbackRateMin)
       ? collisionSound.playbackRateMin
-      : 0.96,
+      : 0.9,
     Number.EPSILON,
   );
   const playbackRateMax = Math.max(
     Number.isFinite(collisionSound.playbackRateMax)
       ? collisionSound.playbackRateMax
-      : 1.04,
+      : 1.1,
     playbackRateMin,
   );
   const buffers = new Map();
@@ -233,15 +221,42 @@ export function createAudioController({ collisionSound = {}, onProgress } = {}) 
       return;
     }
 
-    const normalizedImpact = clamp(
-      ((Number.isFinite(impactSpeed) ? impactSpeed : minImpactSpeed)
-        - minImpactSpeed)
-        / (fullVolumeImpactSpeed - minImpactSpeed),
+    const randomVolume = minVolume + Math.random() * (maxVolume - minVolume);
+    const bodyMinimumImpact = Math.max(
+      collisionSound.bodyMinImpactSpeed ?? 0.25,
+      0,
+    );
+    const bodyFullVolumeImpact = Math.max(
+      collisionSound.bodyFullVolumeImpactSpeed ?? 2,
+      bodyMinimumImpact + Number.EPSILON,
+    );
+    const bodyImpactRatio = clamp(
+      ((Number.isFinite(impactSpeed) ? impactSpeed : bodyMinimumImpact)
+        - bodyMinimumImpact)
+        / (bodyFullVolumeImpact - bodyMinimumImpact),
       0,
       1,
     );
-    const volume = minVolume
-      + (maxVolume - minVolume) * Math.sqrt(normalizedImpact);
+    const baseMinimumImpact = Math.max(
+      collisionSound.baseMinImpactSpeed ?? 0.25,
+      0,
+    );
+    const baseFullVolumeImpact = Math.max(
+      collisionSound.baseFullVolumeImpactSpeed ?? 2,
+      baseMinimumImpact + Number.EPSILON,
+    );
+    const baseImpactRatio = clamp(
+      ((Number.isFinite(impactSpeed) ? impactSpeed : baseMinimumImpact)
+        - baseMinimumImpact)
+        / (baseFullVolumeImpact - baseMinimumImpact),
+      0,
+      1,
+    );
+    const volume = type === "base"
+      ? minVolume + (maxVolume - minVolume) * Math.sqrt(baseImpactRatio)
+      : type === "body"
+        ? minVolume + (maxVolume - minVolume) * Math.sqrt(bodyImpactRatio)
+        : randomVolume;
     const playbackRate = playbackRateMin
       + Math.random() * (playbackRateMax - playbackRateMin);
 
