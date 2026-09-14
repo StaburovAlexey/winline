@@ -13,13 +13,13 @@
   <link rel="preload" href="%VITE_PUBLIC_CDN%/font/WINLINE-SANS_BOLD.TTF" as="font" type="font/ttf" crossorigin />
   <link rel="preload" href="%VITE_PUBLIC_CDN%/font/WINLINE-SANS_BOLD-ITALIC.TTF" as="font" type="font/ttf" crossorigin />
   <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/winline-seeklogo%203.svg" as="image" type="image/svg+xml" />
-  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/png/image1282.png" as="image" type="image/png" />
-  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/png/Maskgroup.png" as="image" type="image/png" />
-  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/png/cup.png" as="image" type="image/png" />
-  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/png/trophy.png" as="image" type="image/png" />
-  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/png/camera.png" as="image" type="image/png" />
-  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/png/ball.png" as="image" type="image/png" />
-  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/snowball3.png" as="image" type="image/png" />
+  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/png/image1282.webp" as="image" type="image/webp" />
+  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/png/Maskgroup.webp" as="image" type="image/webp" />
+  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/png/cup.webp" as="image" type="image/webp" />
+  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/png/trophy.webp" as="image" type="image/webp" />
+  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/png/camera.webp" as="image" type="image/webp" />
+  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/png/ball.webp" as="image" type="image/webp" />
+  <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/details/snowball3.webp" as="image" type="image/webp" />
   <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/loading-backhround.png" as="image" type="image/png" />
   <link rel="preload" href="%VITE_PUBLIC_CDN%/assets/load-bar.png" as="image" type="image/png" />
   <style>
@@ -54,20 +54,20 @@
   <main id="app" aria-label="Шар предсказаний Winline">
     <section id="start-screen" aria-label="Начальный экран">
       <img id="start-logo" src="%VITE_PUBLIC_CDN%/assets/details/winline-seeklogo%203.svg" alt="Winline" />
-      <img id="start-headphone" class="start-img" src="%VITE_PUBLIC_CDN%/assets/details/png/image1282.png" alt="">
-      <img id="start-keyboard" class="start-img" src="%VITE_PUBLIC_CDN%/assets/details/png/Maskgroup.png" alt="">
+      <img id="start-headphone" class="start-img" src="%VITE_PUBLIC_CDN%/assets/details/png/image1282.webp" alt="">
+      <img id="start-keyboard" class="start-img" src="%VITE_PUBLIC_CDN%/assets/details/png/Maskgroup.webp" alt="">
 
       <div id="start-cup-group" class="start-img" aria-hidden="true">
-        <img id="start-cup" src="%VITE_PUBLIC_CDN%/assets/details/png/cup.png" alt="">
+        <img id="start-cup" src="%VITE_PUBLIC_CDN%/assets/details/png/cup.webp" alt="">
       </div>
 
 
-      <img id="start-trophy" class="start-img" src="%VITE_PUBLIC_CDN%/assets/details/png/trophy.png" alt="">
-      <img id="start-camera" class="start-img" src="%VITE_PUBLIC_CDN%/assets/details/png/camera.png" alt="">
-      <img id="start-ball" class="start-img" src="%VITE_PUBLIC_CDN%/assets/details/png/ball.png" alt="">
+      <img id="start-trophy" class="start-img" src="%VITE_PUBLIC_CDN%/assets/details/png/trophy.webp" alt="">
+      <img id="start-camera" class="start-img" src="%VITE_PUBLIC_CDN%/assets/details/png/camera.webp" alt="">
+      <img id="start-ball" class="start-img" src="%VITE_PUBLIC_CDN%/assets/details/png/ball.webp" alt="">
       <div class="start-content">
         <div id="start-snowball" aria-hidden="true">
-          <img id="start-snowball-image" src="%VITE_PUBLIC_CDN%/assets/details/snowball3.png" alt="">
+          <img id="start-snowball-image" src="%VITE_PUBLIC_CDN%/assets/details/snowball3.webp" alt="">
         </div>
         <div class="container-text">
           <h2 class="container-text__header">
@@ -75,7 +75,7 @@
           </h2>
           <div class="container-text__content">
             <div class="container-text__header_second">НАЧИНАЕТСЯ</div>
-            <p class="container-text_mini">Каким будет твой год?<br/> Переходи дальше и получи предсказание,<br/> какой получится твоя
+            <p class="container-text_mini">Переходи дальше и получи предсказание,<br/> какой получится твоя
               карьера в Winline.</p>
             <button id="start-button" type="button">НАЧАТЬ</button>
           </div>
@@ -99,7 +99,7 @@
           aria-valuemax="100"
           aria-valuenow="0"
         ></div>
-        <p id="loading-label" class="loading-label">Загрузка...</p>
+        <p id="loading-label" class="loading-label">ЗАГРУЗКА...</p>
         <p id="loading-progress" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">0%</p>
       </div>
     </section>
@@ -139,7 +139,6 @@
       <img class="scene-decoration scene-decoration--right-bottom" data-src="assets/main-page/right-bottom.png" alt="">
     </div>
     <div id="scene-actions" class="scene-actions is-hidden">
-      <p id="scene-shake-hint" class="scene-shake-hint" hidden>Потряси телефон или нажми на кнопку</p>
       <button id="prediction-button" class="scene-prediction-button" type="button">ПОЛУЧИТЬ ПРЕДСКАЗАНИЕ</button>
     </div>
     <div id="prediction-modal" class="prediction-modal" hidden>

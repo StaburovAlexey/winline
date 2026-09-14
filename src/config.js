@@ -2,7 +2,7 @@ import { publicAsset } from "./publicAsset.js";
 
 export const appConfig = {
   model: {
-    url: publicAsset("assets/winline5.glb"),
+    url: publicAsset("assets/winline6.glb"),
     sphereOverlayUrl: publicAsset("assets/ballls.png"),
     sphereOverlayVisibleWidthRatio: 0.73,
     sphereOverlayCenterXOffsetRatio: 0.03,
@@ -18,6 +18,20 @@ export const appConfig = {
     scale: 1,
     position: { x: 0, y: 0, z: 0 },
     rotationDegrees: { x: 0, y: 42, z: 0 },
+    blinkingLight: {
+      anchorName: "Empty_light",
+      color: 0xffb45c,
+      intensity: 140,
+      minimumIntensityRatio: 0,
+      distance: 4,
+      decay: 2,
+      flickerIntervalMin: 0.06,
+      flickerIntervalMax: 0.38,
+      flickerSmoothing: 18,
+      glowSize: 0.43,
+      glowOpacity: 0.8,
+      offset: { x: 0, y: 0.03, z: 0 },
+    },
   },
 
   camera: {
@@ -111,7 +125,6 @@ export const appConfig = {
       visualDuration: 1,
       visualAmplitude: 0.018,
       visualFrequency: 42,
-      predictionDurationSeconds: 2,
       continuityTimeoutSeconds: 0.35,
       platformProfiles: {
         android: {
@@ -182,20 +195,18 @@ export const appConfig = {
     staticBaseColliderHorizontalPadding: 0.05,
     staticBaseColliderContactSkin: 0.02,
     collisionSound: {
-      minImpactSpeed: 0.45,
-      globalCooldownMs: 180,
-      pairCooldownMs: 700,
-      rearmDelayMs: 250,
       minVolume: 0.25,
       maxVolume: 0.85,
-      fullVolumeImpactSpeed: 2,
-      playbackRateMin: 0.96,
-      playbackRateMax: 1.04,
+      playbackRateMin: 0.9,
+      playbackRateMax: 1.1,
+      bodyMinImpactSpeed: 0.25,
+      bodyFullVolumeImpactSpeed: 2,
+      baseMinImpactSpeed: 0.25,
+      baseFullVolumeImpactSpeed: 2,
     },
     linearDamping: 2,
     angularDamping: 2.5,
     flightAngularDamping: 0.65,
-    //скорость полета за свайпом
     pointerVelocityGain: 0.4,
     pointerSmoothing: 1,
     pointerDepthGain: 0,

@@ -2,7 +2,6 @@ import * as THREE from "three";
 
 const FINE_POINTER_QUERY = "(hover: hover) and (pointer: fine)";
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
-const MIN_CAMERA_DISTANCE = 0.0001;
 const DEFAULT_SHAKE_CONFIG = {
   enabled: true,
   accelerationThreshold: 3.2,
@@ -73,7 +72,6 @@ export function createParallaxController({
   gravityConfig,
   onGravityChange,
   onShake,
-  onShakeEnd,
 }) {
   const enabled = config?.enabled !== false;
   const configuredLayers = config?.layers ?? {};
@@ -102,9 +100,6 @@ export function createParallaxController({
   const gravityCallback = typeof onGravityChange === "function"
     ? onGravityChange
     : () => {};
-  const shakeEndCallback = typeof onShakeEnd === "function"
-    ? onShakeEnd
-    : () => {};
   const finePointer = window.matchMedia(FINE_POINTER_QUERY);
   const reducedMotion = window.matchMedia(REDUCED_MOTION_QUERY);
   const eventController = new AbortController();
@@ -112,12 +107,7 @@ export function createParallaxController({
   const passiveEventOptions = { passive: true, signal: eventController.signal };
   const input = new THREE.Vector2();
   const smoothedInput = new THREE.Vector2();
-  const baseCameraPosition = new THREE.Vector3();
   const baseTarget = new THREE.Vector3();
-  const cameraRight = new THREE.Vector3(1, 0, 0);
-  const cameraUp = new THREE.Vector3(0, 1, 0);
-  const cameraOffset = new THREE.Vector3();
-  const cameraShakeOffset = new THREE.Vector2();
   const shakeDirection = new THREE.Vector2(1, 0);
   const motionDirection = new THREE.Vector2();
   const gravityDirection = new THREE.Vector2(0, -1);
@@ -126,7 +116,6 @@ export function createParallaxController({
   const motionAcceleration = new THREE.Vector3();
   const motionGravity = new THREE.Vector3();
   const previousMotionAcceleration = new THREE.Vector3();
-  let baseDistance = 1;
   let hasBasePose = false;
   let orientationBaseline = null;
   let orientationListening = false;
@@ -228,27 +217,13 @@ export function createParallaxController({
     }
   }
 
-  function clearCameraShake(notify = false) {
-    const shouldNotify = notify && shakeActive;
-    const shakeDuration =
-      shakeSequenceStartedAt !== null && lastShakeAt !== null
-        ? Math.max((lastShakeAt - shakeSequenceStartedAt) / 1000, 0)
-        : 0;
+  function clearCameraShake() {
     shakeRemaining = 0;
     shakeElapsed = 0;
     shakeStrength = 0;
     shakeActive = false;
     shakeSequenceStartedAt = null;
     lastShakeAt = null;
-    cameraShakeOffset.set(0, 0);
-
-    if (shouldNotify) {
-      try {
-        shakeEndCallback({ duration: shakeDuration });
-      } catch (error) {
-        console.error("Не удалось обработать окончание встряски", error);
-      }
-    }
   }
 
   function setInput(x, y) {
@@ -300,26 +275,6 @@ export function createParallaxController({
     }
 
     const profile = getProfile();
-    cameraOffset
-      .copy(cameraRight)
-      .multiplyScalar(smoothedInput.x * baseDistance * profile.cameraX)
-      .addScaledVector(
-        cameraUp,
-        smoothedInput.y * baseDistance * profile.cameraY,
-      );
-    cameraOffset.addScaledVector(
-      cameraRight,
-      cameraShakeOffset.x * baseDistance,
-    );
-    cameraOffset.addScaledVector(
-      cameraUp,
-      cameraShakeOffset.y * baseDistance,
-    );
-
-    camera.position.copy(baseCameraPosition).add(cameraOffset);
-    camera.lookAt(baseTarget);
-    camera.updateMatrixWorld();
-
     const parallaxX = -smoothedInput.x * profile.backgroundX;
     const parallaxY = smoothedInput.y * profile.backgroundY;
 
@@ -341,41 +296,7 @@ export function createParallaxController({
   }
 
   function updateCameraShake(deltaTime) {
-    if (shakeRemaining <= 0) {
-      cameraShakeOffset.set(0, 0);
-      return;
-    }
-
-    const duration = Math.max(shakeConfig.visualDuration, 0.001);
-    const safeDeltaTime = Math.max(deltaTime, 0);
-    shakeElapsed += safeDeltaTime;
-    shakeRemaining -= safeDeltaTime;
-
-    if (shakeRemaining <= 0) {
-      clearCameraShake(true);
-      return;
-    }
-
-    const envelope = THREE.MathUtils.clamp(shakeRemaining / duration, 0, 1);
-    const dampedEnvelope = envelope * envelope;
-    const phase = shakeElapsed * shakeConfig.visualFrequency;
-    const primaryWave = Math.sin(phase);
-    const secondaryWave = Math.sin(phase * 1.67 + 0.8) * 0.42;
-    const amplitude = shakeConfig.visualAmplitude * shakeStrength;
-
-    if (shakeConfig.visualEnabled === false) {
-      cameraShakeOffset.set(0, 0);
-      return;
-    }
-
-    cameraShakeOffset.set(
-      (shakeDirection.x * primaryWave - shakeDirection.y * secondaryWave) *
-        amplitude *
-        dampedEnvelope,
-      (shakeDirection.y * primaryWave + shakeDirection.x * secondaryWave) *
-        amplitude *
-        dampedEnvelope,
-    );
+    void deltaTime;
   }
 
   function handlePointerMove(event) {
@@ -1065,43 +986,15 @@ export function createParallaxController({
       triggerShake(strength, motionDirection, true);
     },
 
-    triggerTestShake({ strength = 1, direction = { x: 1, y: 0 } } = {}) {
-      if (disposed) {
-        return;
-      }
-
-      motionOptIn = true;
-      backgroundElement.classList.add("is-motion-parallax-enabled");
-      triggerShake(strength, direction, true);
-    },
-
     captureBasePose() {
       if (disposed) {
         return;
       }
 
-      baseCameraPosition.copy(camera.position);
-      if (hasBasePose) {
-        baseCameraPosition
-          .addScaledVector(
-            cameraRight,
-            -cameraShakeOffset.x * baseDistance,
-          )
-          .addScaledVector(
-            cameraUp,
-            -cameraShakeOffset.y * baseDistance,
-          );
-      }
       baseTarget.copy(target);
-      baseDistance = Math.max(
-        baseCameraPosition.distanceTo(baseTarget),
-        MIN_CAMERA_DISTANCE,
-      );
 
       camera.lookAt(baseTarget);
       camera.updateMatrixWorld();
-      cameraRight.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
-      cameraUp.setFromMatrixColumn(camera.matrixWorld, 1).normalize();
       hasBasePose = true;
       applyPose();
     },

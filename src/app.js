@@ -23,7 +23,6 @@ const loadingBarElement = document.querySelector("#loading-bar");
 const loadingLabelElement = document.querySelector("#loading-label");
 const loadingProgressElement = document.querySelector("#loading-progress");
 const sceneActionsElement = document.querySelector("#scene-actions");
-const sceneShakeHintElement = document.querySelector("#scene-shake-hint");
 const predictionButton = document.querySelector("#prediction-button");
 const predictionModal = document.querySelector("#prediction-modal");
 const predictionMoreButton = document.querySelector("#prediction-more-button");
@@ -47,7 +46,6 @@ if (
   || !(loadingLabelElement instanceof HTMLElement)
   || !(loadingProgressElement instanceof HTMLElement)
   || !(sceneActionsElement instanceof HTMLElement)
-  || !(sceneShakeHintElement instanceof HTMLElement)
   || !(predictionButton instanceof HTMLButtonElement)
   || !(predictionModal instanceof HTMLElement)
   || !(predictionMoreButton instanceof HTMLButtonElement)
@@ -146,6 +144,81 @@ controls.maxDistance = appConfig.controls.maxDistance;
 
 let model = null;
 let modelPhysics = null;
+let sphereColliderNode = null;
+let blinkingLampLight = null;
+let blinkingLampGlow = null;
+let blinkingLampLevel = 0;
+let blinkingLampTargetLevel = 1;
+let blinkingLampChangeRemaining = 0;
+const sphereRaycaster = new THREE.Raycaster();
+const spherePointer = new THREE.Vector2();
+let sphereTapStart = null;
+const sphereTapThreshold = 10;
+
+function createLampGlow(lightConfig) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 128;
+  const context = canvas.getContext("2d");
+  const gradient = context.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gradient.addColorStop(0, "rgba(255,255,255,1)");
+  gradient.addColorStop(0.16, "rgba(255,244,208,0.95)");
+  gradient.addColorStop(0.48, "rgba(255,170,72,0.38)");
+  gradient.addColorStop(1, "rgba(255,120,20,0)");
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 128, 128);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    color: lightConfig.color,
+    transparent: true,
+    opacity: 0,
+    blending: THREE.AdditiveBlending,
+    depthTest: true,
+    depthWrite: false,
+  });
+  const glow = new THREE.Sprite(material);
+  glow.name = "Blinking_lamp_glow";
+  glow.scale.setScalar(lightConfig.glowSize);
+  return glow;
+}
+
+renderer.domElement.addEventListener("pointerdown", (event) => {
+  if (!event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) return;
+  sphereTapStart = { id: event.pointerId, x: event.clientX, y: event.clientY };
+});
+renderer.domElement.addEventListener("pointercancel", () => {
+  sphereTapStart = null;
+});
+renderer.domElement.addEventListener("pointermove", (event) => {
+  if (
+    sphereTapStart?.id === event.pointerId
+    && Math.hypot(
+      event.clientX - sphereTapStart.x,
+      event.clientY - sphereTapStart.y,
+    ) > sphereTapThreshold
+  ) {
+    sphereTapStart = null;
+  }
+});
+renderer.domElement.addEventListener("pointerup", (event) => {
+  const tap = sphereTapStart;
+  sphereTapStart = null;
+  if (!tap || tap.id !== event.pointerId || !sphereColliderNode || !modelPhysics) return;
+  if (Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > sphereTapThreshold) return;
+  const bounds = renderer.domElement.getBoundingClientRect();
+  spherePointer.set(
+    ((event.clientX - bounds.left) / bounds.width) * 2 - 1,
+    -((event.clientY - bounds.top) / bounds.height) * 2 + 1,
+  );
+  sphereRaycaster.setFromCamera(spherePointer, camera);
+  sphereColliderNode.updateWorldMatrix(true, false);
+  if (sphereRaycaster.intersectObject(sphereColliderNode, false).length > 0) {
+    modelPhysics.applyPredictionBurst();
+  }
+});
 let sphereOverlay = null;
 let sphereReflection = null;
 const sphereOverlayParentQuaternion = new THREE.Quaternion();
@@ -164,13 +237,7 @@ const parallax = createParallaxController({
   onShake: ({ strength, direction, coherence }) => {
     modelPhysics?.applyShake({ strength, direction, coherence });
   },
-  onShakeEnd: handleShakeEnd,
 });
-
-const hasShakeInput =
-  typeof window.DeviceMotionEvent !== "undefined"
-  && window.matchMedia("(pointer: coarse)").matches;
-sceneShakeHintElement.hidden = !hasShakeInput;
 
 const predictionStorageKey = "winline:prediction-deck:v1";
 const predictionCards = new Map(
@@ -374,30 +441,6 @@ function closePredictionModal() {
 
 let predictionRevealPending = false;
 
-function handleShakeEnd({ duration = 0 } = {}) {
-  const sceneIsReady =
-    modelPhysics !== null
-    && !sceneActionsElement.classList.contains("is-hidden");
-  const requiredDuration = Math.max(
-    appConfig.parallax.shake.predictionDurationSeconds ?? 2,
-    0,
-  );
-  if (
-    !sceneIsReady
-    || duration < requiredDuration
-    || predictionRevealPending
-    || !predictionModal.hidden
-  ) {
-    return;
-  }
-
-  const prediction = takeNextPrediction();
-  renderPrediction(prediction);
-  predictionModal.hidden = false;
-  analytics.predictionReceived({ source: "shake", cardId: prediction.cardId });
-  audio.playPrediction();
-}
-
 predictionModal.addEventListener("click", (event) => {
   if (event.target === predictionModal) {
     closePredictionModal();
@@ -416,26 +459,19 @@ function runPrediction() {
     return;
   }
 
-  const burstStarted = modelPhysics?.applyPredictionBurst() === true;
-  if (burstStarted) {
-    const prediction = takeNextPrediction();
-    renderPrediction(prediction);
-    closePredictionModal();
-    predictionRevealPending = true;
-    predictionButton.disabled = true;
-    window.setTimeout(() => {
-      predictionButton.disabled = false;
-    }, appConfig.physics.predictionBurst.cooldownMs);
-    window.setTimeout(() => {
-      predictionModal.hidden = false;
-      predictionRevealPending = false;
-      analytics.predictionReceived({
-        source: "button",
-        cardId: prediction.cardId,
-      });
-      audio.playPrediction();
-    }, 1000);
-  }
+  modelPhysics?.applyPredictionBurst();
+  const prediction = takeNextPrediction();
+  renderPrediction(prediction);
+  closePredictionModal();
+  predictionRevealPending = true;
+  predictionButton.disabled = true;
+  window.setTimeout(() => {
+    predictionModal.hidden = false;
+    predictionRevealPending = false;
+    predictionButton.disabled = false;
+    analytics.predictionReceived({ source: "button", cardId: prediction.cardId });
+    audio.playPrediction();
+  }, 1000);
   predictionButton.blur();
 }
 
@@ -444,22 +480,10 @@ predictionMoreButton.addEventListener("click", runPrediction);
 
 if (import.meta.env.DEV && !loadingScreenPreviewMode) {
   const shakeTestCases = [
-    {
-      label: "телефон вправо",
-      acceleration: { x: 4, y: 0, z: 0 },
-    },
-    {
-      label: "телефон влево",
-      acceleration: { x: -4, y: 0, z: 0 },
-    },
-    {
-      label: "телефон от себя",
-      acceleration: { x: 0, y: 0, z: -4 },
-    },
-    {
-      label: "телефон на себя",
-      acceleration: { x: 0, y: 0, z: 4 },
-    },
+    { label: "телефон вправо", acceleration: { x: 4, y: 0, z: 0 } },
+    { label: "телефон влево", acceleration: { x: -4, y: 0, z: 0 } },
+    { label: "телефон от себя", acceleration: { x: 0, y: 0, z: -4 } },
+    { label: "телефон на себя", acceleration: { x: 0, y: 0, z: 4 } },
   ];
   let shakeTestIndex = 0;
   const updateShakeTestLabel = () => {
@@ -1046,6 +1070,33 @@ function animate(time) {
   stats?.begin();
   timer.update(time);
   const deltaTime = timer.getDelta();
+  if (blinkingLampLight) {
+    const lightConfig = appConfig.model.blinkingLight;
+    blinkingLampChangeRemaining -= deltaTime;
+    if (blinkingLampChangeRemaining <= 0) {
+      blinkingLampTargetLevel = Math.random() < 0.32
+        ? Math.random() * 0.16
+        : THREE.MathUtils.lerp(0.55, 1, Math.random());
+      blinkingLampChangeRemaining = THREE.MathUtils.lerp(
+        lightConfig.flickerIntervalMin,
+        lightConfig.flickerIntervalMax,
+        Math.random(),
+      );
+    }
+    blinkingLampLevel = THREE.MathUtils.damp(
+      blinkingLampLevel,
+      blinkingLampTargetLevel,
+      lightConfig.flickerSmoothing,
+      deltaTime,
+    );
+    blinkingLampLight.intensity = lightConfig.intensity * THREE.MathUtils.lerp(
+      lightConfig.minimumIntensityRatio,
+      1,
+      blinkingLampLevel,
+    );
+    blinkingLampGlow.material.opacity =
+      lightConfig.glowOpacity * blinkingLampLevel;
+  }
   const physicsStartTime = performance.now();
   modelPhysics?.update(deltaTime);
   physicsStatsPanel?.update(performance.now() - physicsStartTime, 20);
@@ -1111,6 +1162,7 @@ async function loadScene() {
   const sphereCollider = gltf.scene.getObjectByName(
     appConfig.physics.sphereColliderName,
   );
+  sphereColliderNode = sphereCollider ?? null;
   if (sphereCollider) {
     sphereCollider.visible = false;
   }
@@ -1174,6 +1226,29 @@ async function loadScene() {
     },
   );
   applyModelConfig(gltf.scene);
+  const lightConfig = appConfig.model.blinkingLight;
+  const lightAnchor = gltf.scene.getObjectByName(lightConfig.anchorName);
+  if (lightAnchor) {
+    blinkingLampLight = new THREE.PointLight(
+      lightConfig.color,
+      lightConfig.intensity,
+      lightConfig.distance,
+      lightConfig.decay,
+    );
+    blinkingLampLight.name = "Blinking_lamp_light";
+    blinkingLampGlow = createLampGlow(lightConfig);
+    const lightOffset = lightConfig.offset ?? { x: 0, y: 0, z: 0 };
+    blinkingLampLight.position.set(
+      lightOffset.x,
+      lightOffset.y,
+      lightOffset.z,
+    );
+    blinkingLampGlow.position.copy(blinkingLampLight.position);
+    lightAnchor.add(blinkingLampLight);
+    lightAnchor.add(blinkingLampGlow);
+  } else {
+    console.warn(`В GLB не найдена точка света ${lightConfig.anchorName}`);
+  }
   scene.add(gltf.scene);
   model = gltf.scene;
   resize();
@@ -1216,6 +1291,8 @@ window.addEventListener("pagehide", () => {
   sphereReflection?.geometry.dispose();
   sphereReflection?.material.map?.dispose();
   sphereReflection?.material.dispose();
+  blinkingLampGlow?.material.map?.dispose();
+  blinkingLampGlow?.material.dispose();
 }, { once: true });
 resize();
 renderer.setAnimationLoop(animate);

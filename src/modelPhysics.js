@@ -279,7 +279,6 @@ class ModelPhysics {
     this.floorColliderHandles = new Set();
     this.sphereCollider = null;
     this.sphereColliderHandle = null;
-    this.lastCollisionSoundAt = -Infinity;
     this.accumulator = 0;
     this.elapsedTime = 0;
     this.vortexEnergy = 0;
@@ -402,7 +401,6 @@ class ModelPhysics {
       this.staticColliderByHandle.set(collider.handle, collider);
     });
     movingNodes.forEach((node) => this.createDynamicBody(node));
-    this.bindPointerEvents();
   }
 
   createDynamicBody(node) {
@@ -2047,68 +2045,50 @@ class ModelPhysics {
         this.reactivateSettledCollisionBody(secondBody, firstBody);
       }
 
-      if (!this.onBodyCollision) {
-        return;
-      }
-
-      const now = this.elapsedTime * 1000;
-      const pairKey = this.getCollisionPairKey(firstHandle, secondHandle);
-      let pairState = this.collisionPairStates.get(pairKey);
-      if (!pairState) {
-        pairState = {
-          lastPlayedAt: -Infinity,
-          lastSeparatedAt: -Infinity,
-        };
-        this.collisionPairStates.set(pairKey, pairState);
-      }
-
-      if (!started) {
-        pairState.lastSeparatedAt = now;
+      if (!started || !this.onBodyCollision) {
         return;
       }
 
       if (
         (firstBody && !firstBody.enabled)
         || (secondBody && !secondBody.enabled)
-        || (firstBody?.settled && secondBody?.settled)
-        || (!isBodyCollision && (firstBody ?? secondBody)?.settled)
       ) {
         return;
       }
 
-      const soundConfig = this.config.collisionSound ?? {};
-      const globalCooldownMs = Math.max(
-        soundConfig.globalCooldownMs ?? 180,
-        0,
-      );
-      const pairCooldownMs = Math.max(
-        soundConfig.pairCooldownMs ?? 700,
-        0,
-      );
-      const rearmDelayMs = Math.max(soundConfig.rearmDelayMs ?? 250, 0);
-      if (
-        now - this.lastCollisionSoundAt < globalCooldownMs
-        || now - pairState.lastPlayedAt < pairCooldownMs
-        || now - pairState.lastSeparatedAt < rearmDelayMs
-      ) {
-        return;
+      let impactSpeed;
+      if (isBodyCollision) {
+        impactSpeed = this.getCollisionImpactSpeed(
+          firstHandle,
+          secondHandle,
+          firstBody,
+          secondBody,
+        );
+        const minimumImpactSpeed = Math.max(
+          this.config.collisionSound?.bodyMinImpactSpeed ?? 0.25,
+          0,
+        );
+        if (impactSpeed < minimumImpactSpeed) {
+          return;
+        }
+
+      } else if (isBaseCollision) {
+        impactSpeed = this.getCollisionImpactSpeed(
+          firstHandle,
+          secondHandle,
+          firstBody,
+          secondBody,
+        );
+        const minimumImpactSpeed = Math.max(
+          this.config.collisionSound?.baseMinImpactSpeed ?? 0.25,
+          0,
+        );
+        if (impactSpeed < minimumImpactSpeed) {
+          return;
+        }
+
       }
 
-      const impactSpeed = isSphereCollision
-        ? this.getSphereWallImpactSpeed(firstBody ?? secondBody)
-        : this.getCollisionImpactSpeed(
-            firstHandle,
-            secondHandle,
-            firstBody,
-            secondBody,
-          );
-      const minImpactSpeed = Math.max(soundConfig.minImpactSpeed ?? 0.45, 0);
-      if (impactSpeed < minImpactSpeed) {
-        return;
-      }
-
-      this.lastCollisionSoundAt = now;
-      pairState.lastPlayedAt = now;
       this.onBodyCollision({
         type: isBodyCollision ? "body" : isSphereCollision ? "sphere" : "base",
         impactSpeed,
@@ -2132,7 +2112,6 @@ class ModelPhysics {
       ? this.pendingPredictionBurst.items.length
         - this.pendingPredictionBurst.nextIndex
       : 0;
-
     return queuedLaunchBodies + queuedPointerBodies + queuedPredictionBodies;
   }
 
