@@ -74,6 +74,7 @@ export function createParallaxController({
   onShake,
 }) {
   const enabled = config?.enabled !== false;
+  const visualEnabled = config?.visualEnabled !== false;
   const configuredLayers = config?.layers ?? {};
   const backgroundTopLayerDepth = configuredLayers.backgroundTop ?? 0.2;
   const backgroundBottomLayerDepth = configuredLayers.backgroundBottom ?? 0.55;
@@ -275,8 +276,12 @@ export function createParallaxController({
     }
 
     const profile = getProfile();
-    const parallaxX = -smoothedInput.x * profile.backgroundX;
-    const parallaxY = smoothedInput.y * profile.backgroundY;
+    const parallaxX = visualEnabled
+      ? -smoothedInput.x * profile.backgroundX
+      : 0;
+    const parallaxY = visualEnabled
+      ? smoothedInput.y * profile.backgroundY
+      : 0;
 
     setLayerParallax(
       "background-top",
@@ -300,7 +305,7 @@ export function createParallaxController({
   }
 
   function handlePointerMove(event) {
-    if (!isActive() || !isDesktopMode()) {
+    if (!visualEnabled || !isActive() || !isDesktopMode()) {
       return;
     }
 
@@ -919,8 +924,10 @@ export function createParallaxController({
     }
   }
 
-  canvas.addEventListener("pointermove", handlePointerMove, passiveEventOptions);
-  canvas.addEventListener("pointerleave", () => resetInput(), eventOptions);
+  if (visualEnabled) {
+    canvas.addEventListener("pointermove", handlePointerMove, passiveEventOptions);
+    canvas.addEventListener("pointerleave", () => resetInput(), eventOptions);
+  }
   window.addEventListener(
     "blur",
     () => resetInput(true, true),

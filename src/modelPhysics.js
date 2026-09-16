@@ -785,6 +785,17 @@ class ModelPhysics {
       .normalize();
   }
 
+  restoreDynamicBody(item) {
+    if (item.settled) {
+      item.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+    } else {
+      item.body.wakeUp();
+    }
+
+    item.settled = false;
+    item.settleTime = 0;
+  }
+
   setGravityDirection(direction) {
     if (
       this.config.tiltGravity?.enabled !== true
@@ -825,9 +836,7 @@ class ModelPhysics {
         continue;
       }
 
-      item.body.wakeUp();
-      item.settled = false;
-      item.settleTime = 0;
+      this.restoreDynamicBody(item);
       this.activeBodyCount += 1;
       wokeBody = true;
     }
@@ -912,8 +921,7 @@ class ModelPhysics {
       item.enabled = true;
     }
 
-    item.settled = false;
-    item.settleTime = 0;
+    this.restoreDynamicBody(item);
     if (!wasActive) {
       this.activeBodyCount += 1;
     }
@@ -1121,8 +1129,7 @@ class ModelPhysics {
       item.enabled = true;
     }
 
-    item.settled = false;
-    item.settleTime = 0;
+    this.restoreDynamicBody(item);
     if (!wasActive) {
       this.activeBodyCount += 1;
     }
@@ -1328,9 +1335,9 @@ class ModelPhysics {
     this.pendingPredictionBurst.items[0].delay = 0;
     this.lastPredictionBurstAt = now;
     this.physicsActivated = true;
-    this.vortexEnergy = Math.max(this.vortexEnergy, 0.35);
-    this.vortexLiftMultiplier = 0.35;
-    this.vortexInwardMultiplier = 0.35;
+    this.vortexEnergy = 0;
+    this.vortexLiftMultiplier = 0;
+    this.vortexInwardMultiplier = 0;
     this.shakePressureMultiplier = 0;
     this.settleCheckAccumulator = 0;
     return true;
@@ -1344,25 +1351,47 @@ class ModelPhysics {
       item.body.setEnabled(true);
       item.enabled = true;
     }
+    this.restoreDynamicBody(item);
     if (!wasActive) {
       this.activeBodyCount += 1;
     }
 
-    item.settled = false;
-    item.settleTime = 0;
     this.resetFallState(item);
     item.body.resetForces(false);
     item.body.resetTorques(false);
 
+    item.body.translation(this.bodyTranslation);
+    this.radialDirection
+      .copy(this.bodyTranslation)
+      .sub(this.vortexCenter)
+      .addScaledVector(
+        this.upAxis,
+        -this.radialDirection.dot(this.upAxis),
+      );
+    if (this.radialDirection.lengthSq() > Number.EPSILON) {
+      this.radialDirection.normalize();
+    } else {
+      this.radialDirection.copy(createRandomHorizontalVector(this.upAxis));
+    }
+
     this.bodyLaunchVelocity
-      .copy(createRandomHorizontalVector(this.upAxis))
+      .copy(this.radialDirection)
+      .multiplyScalar(burstConfig.outwardDirectionStrength ?? 0.8)
+      .addScaledVector(
+        createRandomHorizontalVector(this.upAxis),
+        burstConfig.randomDirectionStrength ?? 0.65,
+      )
+      .addScaledVector(
+        this.upAxis,
+        randomFloat(
+          burstConfig.upwardDirectionMin ?? 0.75,
+          burstConfig.upwardDirectionMax ?? 1.2,
+        ),
+      )
+      .normalize()
       .multiplyScalar(randomFloat(
-        burstConfig.horizontalVelocityMin ?? 0.8,
-        burstConfig.horizontalVelocityMax ?? 1.8,
-      ))
-      .addScaledVector(this.upAxis, randomFloat(
-        burstConfig.upwardVelocityMin ?? 5.2,
-        burstConfig.upwardVelocityMax ?? 6.3,
+        burstConfig.speedMin ?? 4.8,
+        burstConfig.speedMax ?? 6.3,
       ));
     item.body.setLinvel(this.bodyLaunchVelocity, true);
 
@@ -1871,6 +1900,7 @@ class ModelPhysics {
       if (
         otherCollider.handle === this.sphereColliderHandle
         || this.floorColliderHandles.has(otherCollider.handle)
+        || this.bodyByColliderHandle.get(otherCollider.handle)?.settled
       ) {
         touchingSupport = true;
       }
@@ -1924,7 +1954,7 @@ class ModelPhysics {
       item.body.setLinvel(this.zeroVelocity, false);
       item.body.setAngvel(this.zeroVelocity, false);
       item.body.setAngularDamping(this.config.angularDamping);
-      item.body.sleep();
+      item.body.setBodyType(RAPIER.RigidBodyType.Fixed, false);
       item.settled = true;
       item.settledGravityDirection.copy(this.currentGravityDirection);
       this.activeBodyCount = Math.max(this.activeBodyCount - 1, 0);
@@ -2007,22 +2037,6 @@ class ModelPhysics {
     );
   }
 
-  reactivateSettledCollisionBody(item, otherBody) {
-    if (
-      !item?.enabled
-      || !item.settled
-      || !otherBody?.enabled
-      || otherBody.settled
-    ) {
-      return;
-    }
-
-    item.body.wakeUp();
-    item.settled = false;
-    item.settleTime = 0;
-    this.activeBodyCount += 1;
-  }
-
   drainCollisionEvents() {
     this.eventQueue.drainCollisionEvents((firstHandle, secondHandle, started) => {
       const firstBody = this.bodyByColliderHandle.get(firstHandle);
@@ -2038,11 +2052,6 @@ class ModelPhysics {
       );
       if (!isBodyCollision && !isSphereCollision && !isBaseCollision) {
         return;
-      }
-
-      if (started && isBodyCollision) {
-        this.reactivateSettledCollisionBody(firstBody, secondBody);
-        this.reactivateSettledCollisionBody(secondBody, firstBody);
       }
 
       if (!started || !this.onBodyCollision) {

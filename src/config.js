@@ -88,6 +88,7 @@ export const appConfig = {
 
   parallax: {
     enabled: true,
+    visualEnabled: false,
     smoothing: 5,
     deadZone: 0.03,
     layers: {
@@ -228,10 +229,12 @@ export const appConfig = {
     predictionBurst: {
       duration: 0.25,
       cooldownMs: 400,
-      upwardVelocityMin: 5.2,
-      upwardVelocityMax: 6.3,
-      horizontalVelocityMin: 0.8,
-      horizontalVelocityMax: 1.8,
+      speedMin: 4.8,
+      speedMax: 6.3,
+      upwardDirectionMin: 0.75,
+      upwardDirectionMax: 1.2,
+      outwardDirectionStrength: 0.8,
+      randomDirectionStrength: 0.65,
       angularVelocityMin: 3.5,
       angularVelocityMax: 6,
     },

@@ -23,6 +23,7 @@ const loadingBarElement = document.querySelector("#loading-bar");
 const loadingLabelElement = document.querySelector("#loading-label");
 const loadingProgressElement = document.querySelector("#loading-progress");
 const sceneActionsElement = document.querySelector("#scene-actions");
+const sceneShakeHintElement = document.querySelector("#scene-shake-hint");
 const predictionButton = document.querySelector("#prediction-button");
 const predictionModal = document.querySelector("#prediction-modal");
 const predictionMoreButton = document.querySelector("#prediction-more-button");
@@ -46,6 +47,7 @@ if (
   || !(loadingLabelElement instanceof HTMLElement)
   || !(loadingProgressElement instanceof HTMLElement)
   || !(sceneActionsElement instanceof HTMLElement)
+  || !(sceneShakeHintElement instanceof HTMLElement)
   || !(predictionButton instanceof HTMLButtonElement)
   || !(predictionModal instanceof HTMLElement)
   || !(predictionMoreButton instanceof HTMLButtonElement)
@@ -238,6 +240,14 @@ const parallax = createParallaxController({
     modelPhysics?.applyShake({ strength, direction, coherence });
   },
 });
+
+const hasShakeInput =
+  typeof window.DeviceMotionEvent !== "undefined"
+  && window.matchMedia("(pointer: coarse)").matches;
+sceneShakeHintElement.textContent = hasShakeInput
+  ? "Потряси смартфон :)"
+  : "Нажми на шар для яркого эффекта :)";
+sceneShakeHintElement.hidden = false;
 
 const predictionStorageKey = "winline:prediction-deck:v1";
 const predictionCards = new Map(

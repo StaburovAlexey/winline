@@ -175,14 +175,6 @@ body {
     /* mix-blend-mode: darken; */
 }
 /* .scene-left-center__mirror {
-  top: 51.04%;
-  left: 22%;
-  z-index: 1;
-  width: 66.71%;
-  /* opacity: 0.67; */
-  /* mix-blend-mode: darken; */
-} */
-/* .scene-left-center__mirror {
   top: 54.04%;
   left: 20%;
   z-index: 1;
@@ -743,6 +735,19 @@ body {
 }
 
 .scene-actions.is-hidden {
+  display: none;
+}
+
+.scene-shake-hint {
+  margin: 0 0 15px;
+  color: #ffffff77;
+  font-family: "WINLINE Sans", sans-serif;
+  font-size: 16px;
+  line-height: 1;
+  text-align: center;
+}
+
+.scene-shake-hint[hidden] {
   display: none;
 }
 
